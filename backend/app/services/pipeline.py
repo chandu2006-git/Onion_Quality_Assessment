@@ -86,12 +86,21 @@ class InspectionPipeline:
                 self.detector.unload()
 
             # --- Phase 2: MobileNetV2 classification, then release it --------
+            logger.info("CLASSIFIER PHASE: starting load")
             classifier_ok = self.classifier.load()
+            logger.info("CLASSIFIER PHASE: load complete (success=%s)", classifier_ok)
+
             try:
                 if not classifier_ok:
                     raise RuntimeError(
                         self.classifier.load_error or "Health classifier model could not be loaded."
                     )
+
+                logger.info(
+                    "CLASSIFIER PHASE: starting inference for %s crop(s)",
+                    len(pending),
+                )
+
                 for bbox, confidence, crop in pending:
                     # Each detected bulb is evaluated independently by the classifier.
                     classification = self.classifier.classify(crop)
@@ -104,9 +113,13 @@ class InspectionPipeline:
                             "health_confidence": classification["health_confidence"],
                         }
                     )
+
+                logger.info("CLASSIFIER PHASE: inference complete")
+
             finally:
                 # Release the TensorFlow weights as soon as inference is done.
                 self.classifier.unload()
+                logger.info("CLASSIFIER PHASE: released")
 
         # Evidence image needs no model and runs outside the lock.
         annotated = draw_annotations(original, detections)
