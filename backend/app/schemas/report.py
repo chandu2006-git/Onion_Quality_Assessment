@@ -23,6 +23,9 @@ class ReportResponse(BaseModel):
 
 class HealthCheckResponse(BaseModel):
     status: str
+    # Service readiness: trained files installed and no recorded load failure.
+    ready: bool
+    # Current in-memory residency (models load lazily; false at rest).
     detector_loaded: bool
     classifier_loaded: bool
     detector_error: Optional[str] = None

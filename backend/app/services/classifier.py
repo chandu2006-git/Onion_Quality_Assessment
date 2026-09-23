@@ -7,9 +7,15 @@ softmax output - is interpreted correctly instead of being assumed.
 
 ``tensorflow`` is imported lazily inside :meth:`OnionHealthClassifier.load` so
 the API can start and report an accurate error when the ML runtime is absent.
+
+Weights are loaded on demand and released again via
+:meth:`OnionHealthClassifier.unload` so the classifier and the detector are
+never resident in memory at the same time (512 MiB deployment limit).
 """
 
+import gc
 import logging
+import sys
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -66,7 +72,11 @@ class OnionHealthClassifier:
         return list(self._class_names) if self._class_names else None
 
     def load(self) -> bool:
-        """Load the classifier once. Returns True on success."""
+        """Load the classifier into memory. Returns True on success.
+
+        Called lazily per analysis (never at application startup) and always
+        paired with :meth:`unload` by the pipeline.
+        """
         self._model = None
         self.load_error = None
         path = self.model_path
@@ -94,6 +104,28 @@ class OnionHealthClassifier:
             self.load_error = f"Health classifier could not be loaded: {exc}"
             logger.exception("Failed to load the health classifier model")
             return False
+
+    def unload(self) -> None:
+        """Release the Keras model from memory and run garbage collection.
+
+        ``clear_session`` resets TensorFlow's global graph state so the freed
+        memory can be reused instead of lingering in Keras caches. Called by
+        the pipeline right after classification so the TensorFlow weights are
+        never resident at the same time as the YOLO detector. Idempotent;
+        ``load_error`` is preserved so ``/api/health`` keeps reporting the
+        last real failure.
+        """
+        had_model = self._model is not None
+        self._model = None
+        tf = sys.modules.get("tensorflow")
+        if tf is not None:
+            try:
+                tf.keras.backend.clear_session()
+            except Exception:  # pragma: no cover - defensive
+                logger.debug("tf.keras.backend.clear_session() failed during unload.", exc_info=True)
+        gc.collect()
+        if had_model:
+            logger.info("Health classifier released from memory.")
 
     # ------------------------------------------------------------------ #
     # Inference

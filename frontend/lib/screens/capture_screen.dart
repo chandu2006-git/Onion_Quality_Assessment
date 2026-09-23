@@ -373,8 +373,8 @@ class _ServiceStatusBanner extends StatelessWidget {
       return const InfoBanner(
         title: 'Inspection service online',
         severity: BannerSeverity.success,
-        message: 'Detection model and health classification model reported as loaded '
-            'by the backend.',
+        message: 'Detection model and health classification model reported as ready '
+            'by the backend. Models load on demand for each analysis.',
       );
     }
     return InfoBanner(
@@ -382,7 +382,7 @@ class _ServiceStatusBanner extends StatelessWidget {
       severity: BannerSeverity.error,
       message: status.summary,
       details: const [
-        'Inference cannot run until the service reports both models as loaded.',
+        'Inference cannot run until the service reports ready (model files installed, no load failures).',
         'No placeholder or substitute results are produced by this application.',
       ],
     );

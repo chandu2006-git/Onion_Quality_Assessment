@@ -2,10 +2,14 @@
 
 AI-Assisted Onion Quality Inspection API.
 
-Models are loaded once during application startup (lifespan) and reused for every
-request. Startup never fails silently: if a model cannot be loaded the service
-starts in a degraded state, ``/api/health`` reports the real failure and
-``/api/analyze`` refuses to run rather than returning fabricated results.
+The server starts without loading any ML model. ``POST /api/analyze`` loads the
+YOLOv8n detector, releases it, then loads the MobileNetV2 classifier and
+releases it again (sequential lazy loading, guarded by a process-wide lock) so
+both models are never resident in memory at the same time and peak RSS stays
+inside the 512 MiB limit of the free Render instance. ``/api/health`` reports
+model-file presence, current in-memory residency and readiness separately;
+``/api/analyze`` refuses to run (503) rather than returning fabricated results
+when the trained model files are missing or fail to load.
 """
 
 import logging
@@ -19,7 +23,6 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import configure_logging, settings
 from app.routes import analysis, health, reports
-from app.services.model_registry import load_models
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -28,8 +31,8 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     logger.info("Starting %s v%s", settings.API_TITLE, settings.API_VERSION)
-    results = load_models()
-    application.state.models_loaded = all(results.values())
+    # Models are deliberately NOT loaded here: weights load lazily, one model
+    # at a time, during /api/analyze (see app.services.pipeline).
     yield
     logger.info("Shutting down %s", settings.API_TITLE)
 

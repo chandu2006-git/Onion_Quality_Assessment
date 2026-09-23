@@ -4,8 +4,13 @@ The model file is expected at ``settings.detector_path``. ``ultralytics`` is
 imported lazily inside :meth:`OnionDetector.load` so the API can start - and
 report an accurate configuration error through ``/api/health`` - even when the
 ML runtime or the trained model file is not available yet.
+
+Weights are loaded on demand and released again via :meth:`OnionDetector.unload`
+so the detector and the health classifier are never resident in memory at the
+same time (512 MiB deployment limit).
 """
 
+import gc
 import logging
 from typing import Dict, List, Optional
 
@@ -39,7 +44,11 @@ class OnionDetector:
         return dict(self._class_names)
 
     def load(self) -> bool:
-        """Load the detector once. Returns True on success."""
+        """Load the detector into memory. Returns True on success.
+
+        Called lazily per analysis (never at application startup) and always
+        paired with :meth:`unload` by the pipeline.
+        """
         self._model = None
         self.load_error = None
         self._class_names = {}
@@ -62,6 +71,20 @@ class OnionDetector:
             self.load_error = f"Detector could not be loaded: {exc}"
             logger.exception("Failed to load the detector model")
             return False
+
+    def unload(self) -> None:
+        """Release the YOLO model from memory and run garbage collection.
+
+        Called by the pipeline immediately after detection so the PyTorch
+        weights are never resident at the same time as the TensorFlow
+        classifier (512 MiB deployment limit). Idempotent; ``load_error`` is
+        preserved so ``/api/health`` keeps reporting the last real failure.
+        """
+        had_model = self._model is not None
+        self._model = None
+        gc.collect()
+        if had_model:
+            logger.info("Detector released from memory.")
 
     def detect(self, image: np.ndarray, conf: Optional[float] = None) -> List[Dict]:
         """Run detection on a BGR image array (OpenCV convention)."""

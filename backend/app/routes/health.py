@@ -1,7 +1,14 @@
 """Health and readiness endpoint.
 
-Reports whether the service is operational and whether the required model files
-can actually be loaded - it never claims a model is ready when it is not.
+Reports three distinct signals and never conflates them:
+
+* ``*_file_present``  - the trained model artefacts are installed on disk;
+* ``*_loaded``        - weights are resident in memory *right now* (models are
+  loaded lazily during analysis, so both are normally false at rest);
+* ``ready`` / ``status`` - the service can serve analyses: files installed and
+  no recorded load failure.
+
+It never claims a model is loaded when it is not.
 """
 
 from fastapi import APIRouter
@@ -17,14 +24,25 @@ router = APIRouter(tags=["system"])
 def health() -> HealthCheckResponse:
     detector_loaded = detector.loaded
     classifier_loaded = classifier.loaded
+    detector_file_present = settings.detector_path.is_file()
+    classifier_file_present = settings.classifier_path.is_file()
+    # Readiness = trained files installed AND no load failure recorded so far.
+    # A successful later load clears the recorded error again.
+    ready = (
+        detector_file_present
+        and classifier_file_present
+        and detector.load_error is None
+        and classifier.load_error is None
+    )
     return HealthCheckResponse(
-        status="ok" if (detector_loaded and classifier_loaded) else "degraded",
+        status="ok" if ready else "degraded",
+        ready=ready,
         detector_loaded=detector_loaded,
         classifier_loaded=classifier_loaded,
         detector_error=None if detector_loaded else detector.load_error,
         classifier_error=None if classifier_loaded else classifier.load_error,
-        detector_file_present=settings.detector_path.is_file(),
-        classifier_file_present=settings.classifier_path.is_file(),
+        detector_file_present=detector_file_present,
+        classifier_file_present=classifier_file_present,
         version=settings.API_VERSION,
     )
 

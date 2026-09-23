@@ -1,12 +1,17 @@
 /// Health/readiness state of the FastAPI inspection service.
 ///
-/// Reported by `GET /api/health`. When a model cannot be loaded the backend
-/// returns the real failure and the frontend surfaces it as a configuration
-/// problem instead of pretending inference is available.
+/// Reported by `GET /api/health`. The backend distinguishes three signals:
+/// model files present on disk, weights currently resident in memory, and
+/// service readiness (`ready`). Models load lazily one at a time during each
+/// analysis, so `detectorLoaded`/`classifierLoaded` are normally false at
+/// rest - readiness must not be derived from them. When a model cannot be
+/// loaded the backend returns the real failure and the frontend surfaces it as
+/// a configuration problem instead of pretending inference is available.
 class BackendStatus {
   const BackendStatus({
     required this.reachable,
     required this.status,
+    required this.backendReady,
     required this.detectorLoaded,
     required this.classifierLoaded,
     required this.detectorError,
@@ -18,6 +23,11 @@ class BackendStatus {
 
   final bool reachable;
   final String status;
+  /// Readiness as reported by the backend: model files installed and no
+  /// recorded load failure. Independent of the residency flags because
+  /// models are loaded on demand for each analysis.
+  final bool backendReady;
+  /// True only while weights are resident in memory (normally false at rest).
   final bool detectorLoaded;
   final bool classifierLoaded;
   final String? detectorError;
@@ -26,21 +36,29 @@ class BackendStatus {
   final bool classifierFilePresent;
   final String version;
 
-  factory BackendStatus.fromJson(Map<String, dynamic> json) => BackendStatus(
-        reachable: true,
-        status: json['status'] as String? ?? 'degraded',
-        detectorLoaded: json['detector_loaded'] as bool? ?? false,
-        classifierLoaded: json['classifier_loaded'] as bool? ?? false,
-        detectorError: json['detector_error'] as String?,
-        classifierError: json['classifier_error'] as String?,
-        detectorFilePresent: json['detector_file_present'] as bool? ?? false,
-        classifierFilePresent: json['classifier_file_present'] as bool? ?? false,
-        version: json['version'] as String? ?? '',
-      );
+  factory BackendStatus.fromJson(Map<String, dynamic> json) {
+    final detectorLoaded = json['detector_loaded'] as bool? ?? false;
+    final classifierLoaded = json['classifier_loaded'] as bool? ?? false;
+    return BackendStatus(
+      reachable: true,
+      status: json['status'] as String? ?? 'degraded',
+      // Older backends without the explicit `ready` flag fall back to the
+      // legacy interpretation (both models reported loaded).
+      backendReady: json['ready'] as bool? ?? (detectorLoaded && classifierLoaded),
+      detectorLoaded: detectorLoaded,
+      classifierLoaded: classifierLoaded,
+      detectorError: json['detector_error'] as String?,
+      classifierError: json['classifier_error'] as String?,
+      detectorFilePresent: json['detector_file_present'] as bool? ?? false,
+      classifierFilePresent: json['classifier_file_present'] as bool? ?? false,
+      version: json['version'] as String? ?? '',
+    );
+  }
 
   factory BackendStatus.unreachable({String? message}) => BackendStatus(
         reachable: false,
         status: 'unreachable',
+        backendReady: false,
         detectorLoaded: false,
         classifierLoaded: false,
         detectorError: message,
@@ -50,8 +68,8 @@ class BackendStatus {
         version: '',
       );
 
-  /// True only when both trained models report as loaded.
-  bool get ready => reachable && detectorLoaded && classifierLoaded;
+  /// True when the service is reachable and the backend reports ready.
+  bool get ready => reachable && backendReady;
 
   bool get configurationIncomplete =>
       reachable && (!detectorFilePresent || !classifierFilePresent);
@@ -63,7 +81,8 @@ class BackendStatus {
           'Please check the FastAPI service and try again.';
     }
     if (ready) {
-      return 'Inspection service online. Detection and health classification models loaded.';
+      return 'Inspection service online. Detection and health classification '
+          'models are available and load on demand for each analysis.';
     }
     if (configurationIncomplete) {
       final missing = <String>[

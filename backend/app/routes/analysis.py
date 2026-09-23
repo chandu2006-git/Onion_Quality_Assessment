@@ -1,8 +1,10 @@
 """Inspection endpoints: real inference only.
 
 ``POST /api/analyze`` returns observations produced by the loaded YOLOv8n and
-MobileNetV2 models. If a model is unavailable the endpoint fails with an explicit
-error - it never substitutes mock or placeholder observations.
+MobileNetV2 models. Models are loaded lazily - one at a time, inside the
+pipeline's inference lock - so the two are never resident in memory at the same
+time. If a model file is unavailable the endpoint fails with an explicit error
+- it never substitutes mock or placeholder observations.
 """
 
 import base64
@@ -39,11 +41,11 @@ async def analyze(image: UploadFile = File(...)) -> AnalysisResponse:
     """Run the full detection + per-bulb classification pipeline."""
     started = time.perf_counter()
 
-    if not detector.loaded or not classifier.loaded:
+    if not settings.models_present:
         logger.error(
-            "Rejecting analysis request: detector_loaded=%s classifier_loaded=%s",
-            detector.loaded,
-            classifier.loaded,
+            "Rejecting analysis request: model files missing (detector=%s, classifier=%s)",
+            settings.detector_path,
+            settings.classifier_path,
         )
         raise HTTPException(status_code=503, detail=MODEL_UNAVAILABLE_MESSAGE)
 

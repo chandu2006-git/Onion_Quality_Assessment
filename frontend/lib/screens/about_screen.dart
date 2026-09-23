@@ -245,10 +245,10 @@ class _StatusContent extends StatelessWidget {
     rows
       ..add(KeyValueRow(
           label: 'Detector model',
-          value: status.detectorLoaded ? 'Loaded' : 'Not loaded'))
+          value: status.detectorLoaded ? 'In memory' : 'Not in memory (loads on demand)'))
       ..add(KeyValueRow(
           label: 'Classifier model',
-          value: status.classifierLoaded ? 'Loaded' : 'Not loaded'));
+          value: status.classifierLoaded ? 'In memory' : 'Not in memory (loads on demand)'));
 
     if (status.detectorError != null) {
       rows.add(KeyValueRow(

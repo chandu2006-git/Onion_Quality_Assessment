@@ -1,8 +1,10 @@
 """Shared pytest fixtures.
 
 The FastAPI application is exercised through ``TestClient`` with its real
-lifespan, so model loading behaves exactly as in production. The tests adapt to
-whether the trained model files are present instead of faking inference.
+lifespan, so startup behaves exactly as in production: no model is loaded at
+startup - the weights are loaded lazily, one model at a time, during
+``/api/analyze``. The tests adapt to whether the trained model files are
+present instead of faking inference.
 """
 
 import io
@@ -38,8 +40,9 @@ def health(client):
 
 @pytest.fixture(scope="session")
 def models_ready(health) -> bool:
-    """True only when both trained model files loaded for real."""
-    return bool(health.get("detector_loaded") and health.get("classifier_loaded"))
+    """True only when the service reports ready for real inference (files
+    installed and no recorded load failure)."""
+    return bool(health.get("ready"))
 
 
 def make_png_bytes(size=(320, 240), colour=(200, 170, 90)) -> bytes:
