@@ -1,0 +1,19 @@
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+python-multipart==0.0.9
+pydantic==2.7.1
+pydantic-settings==2.2.0
+Pillow==10.3.0
+numpy==1.26.4
+opencv-python-headless==4.9.0.80
+reportlab==4.0.9
+# ML runtime - required for real inference (YOLOv8n + MobileNetV2).
+# Install the CPU wheels matching your platform; pin to the versions your
+# trained models were exported with.
+torch==2.3.1
+torchvision==0.18.1
+ultralytics==8.2.18
+tensorflow==2.16.1
+# Test dependencies
+pytest==8.0.2
+httpx==0.27.0

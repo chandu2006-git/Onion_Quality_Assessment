@@ -1,0 +1,95 @@
+﻿# Flutter
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+*.iml
+.idea/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+.env
+.eggs/
+*.egg-info/
+dist/
+build/
+
+# Models (do not commit)
+backend/models/*.pt
+backend/models/*.keras
+
+
+# =========================
+# Python / FastAPI
+# =========================
+backend/venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/.pytest_cache/
+*.pyc
+*.pyo
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# =========================
+# Flutter / Dart
+# =========================
+frontend/.dart_tool/
+frontend/build/
+frontend/.idea/
+frontend/.metadata
+frontend/.flutter-plugins
+frontend/.flutter-plugins-dependencies
+frontend/.packages
+frontend/.pub-cache/
+frontend/.pub/
+frontend/*.iml
+
+# Flutter generated files
+**/.dart_tool/
+**/build/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+
+# =========================
+# IDE
+# =========================
+.vscode/
+.idea/
+*.iml
+
+# =========================
+# Temporary / generated files
+# =========================
+analyze_errors.txt
+*.log
+*.tmp
+*.bak
+
+# =========================
+# Python test / coverage
+# =========================
+.coverage
+htmlcov/
+.pytest_cache/
+
+# =========================
+# OS files
+# =========================
+.DS_Store
+Thumbs.db
+desktop.ini

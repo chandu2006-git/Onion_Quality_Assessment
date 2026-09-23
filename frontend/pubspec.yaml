@@ -1,0 +1,32 @@
+name: onion_detect
+description: AI-Assisted Onion Quality Inspection
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^2.4.9
+  go_router: ^13.0.0
+  http: ^1.2.0
+  http_parser: ^4.0.2
+  image_picker: ^1.0.7
+  google_fonts: ^6.1.0
+  # Genuine drag & drop of an image file onto the upload area (web + desktop).
+  desktop_drop: ^0.5.0
+  # Opens the official standards references from the Methodology page.
+  url_launcher: ^6.2.6
+  # Browser primitives used to save the generated inspection PDF on Flutter Web.
+  web: ^1.1.0
+
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
