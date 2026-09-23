@@ -13,7 +13,8 @@ COPY requirements.txt .
 
 RUN pip install --no-cache-dir -r requirements.txt \
     && pip uninstall -y opencv-python opencv-contrib-python || true \
-    && pip install --no-cache-dir --force-reinstall opencv-python-headless==4.9.0.80
+    && pip install --no-cache-dir --force-reinstall --no-deps numpy==1.26.4 \
+    && pip install --no-cache-dir --force-reinstall --no-deps opencv-python-headless==4.9.0.80
 
 COPY . .
 
