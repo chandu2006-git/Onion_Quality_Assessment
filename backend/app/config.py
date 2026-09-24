@@ -26,7 +26,7 @@ class Settings(BaseSettings):
 
     # --- Model configuration ------------------------------------------
     MODEL_DETECTOR_PATH: str = "models/onion_detector_v1.pt"
-    MODEL_HEALTH_CLASSIFIER_PATH: str = "models/onion_health_mobilenetv2_best.keras"
+    MODEL_HEALTH_CLASSIFIER_PATH: str = "models/onion_health_mobilenetv2.tflite"
 
     # --- Server -------------------------------------------------------
     API_HOST: str = "0.0.0.0"
@@ -38,7 +38,8 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = (
         "http://localhost,http://localhost:*,"
         "http://127.0.0.1,http://127.0.0.1:*,"
-        "http://localhost:8080,http://localhost:3000"
+        "http://localhost:8080,http://localhost:3000,"
+        "https://ayurherb-51677.web.app"
     )
     LOG_LEVEL: str = "INFO"
 
