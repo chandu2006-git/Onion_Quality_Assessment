@@ -45,9 +45,38 @@ class AppConfig {
     return acceptedExtensions.any((extension) => lower.endsWith('.$extension'));
   }
 
+  // --------------------------------------------------------------------- //
+  // Inspection metadata (illustrative pilot context)
+  // --------------------------------------------------------------------- //
+
+  /// Illustrative inspection locations offered in the dropdown.
+  ///
+  /// These are demo/pilot-context options ONLY. They do not represent live
+  /// deployments, actual transactions or any real-time government system.
+  static const List<String> illustrativeLocations = <String>[
+    'NAFED Procurement Center \u2013 Nashik',
+    'NAFED Buffer Godown \u2013 Lasalgaon',
+    'APMC Yard \u2013 Pimpalgaon',
+    'Pack House \u2013 Pimpri',
+    'Sample Inspection Point \u2013 Guntur',
+  ];
+
+  /// True for every location in [illustrativeLocations]; drives the
+  /// `PILOT DEMO` indicator so illustrative context is never mistaken for a
+  /// live deployment.
+  static bool isIllustrativeLocation(String location) =>
+      illustrativeLocations.contains(location);
+
+  /// Placeholder examples shown in the new-inspection form (never submitted
+  /// as values — the inspector types or selects their own).
+  static const String inspectorHint = 'Inspector / Demo User';
+  static const String batchHint = 'OD-DEMO-001';
+
   /// Product wording used wherever the workflow is described.
-  static const String workflowStatement = 'AI measures  â†’  Human verifies  â†’  Evidence recorded';
+  /// (Unicode escapes keep this source file pure ASCII.)
+  static const String workflowStatement =
+      'AI measures  \u2192  Human verifies  \u2192  Evidence recorded';
   static const String tagline = 'AI-Assisted Onion Quality Inspection';
   static const String assistantDisclaimer =
-      'AI-assisted inspection â€” human verification required.';
+      'AI-assisted inspection \u2014 human verification required.';
 }

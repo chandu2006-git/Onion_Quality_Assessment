@@ -32,7 +32,10 @@ MODEL_UNAVAILABLE_MESSAGE = (
 def _model_metadata() -> dict:
     return {
         "detector": f"{detector.backend} ({settings.detector_path.name})",
-        "classifier": f"{classifier.backend} ({settings.classifier_path.name})",
+        # MobileNetV2 architecture running on the LiteRT runtime (TFLite).
+        "classifier": (
+            f"MobileNetV2 \u00b7 {classifier.backend} ({settings.classifier_path.name})"
+        ),
     }
 
 

@@ -135,6 +135,25 @@ class OnionObservation {
   bool get isHealthyObservation => OnionHealth.isHealthy(aiHealth);
   bool get isReviewed => verification != VerificationOutcome.pending;
 
+  /// True only when the inspector's recorded decision genuinely differs from
+  /// the AI observation — never shown for confirmations or pending bulbs.
+  bool get isAiHumanMismatch =>
+      verification == VerificationOutcome.overridden &&
+      humanDecision != null &&
+      OnionHealth.isHealthy(humanDecision!) != isHealthyObservation;
+
+  /// Lifecycle label for the bulb: pending → verified → verified override.
+  String get finalStatusLabel {
+    switch (verification) {
+      case VerificationOutcome.confirmed:
+        return 'VERIFIED';
+      case VerificationOutcome.overridden:
+        return 'VERIFIED — OVERRIDE';
+      case VerificationOutcome.pending:
+        return 'PENDING VERIFICATION';
+    }
+  }
+
   /// Recorded final status: the AI label when confirmed, the human decision when
   /// overridden. `null` while the bulb is still pending review.
   String? get recordedHealth {

@@ -7,6 +7,8 @@ Pillow==10.3.0
 numpy==1.26.4
 opencv-python-headless==4.9.0.80
 reportlab==4.0.9
+# Demo verification QR code embedded in the PDF report (pure Python, no native deps).
+qrcode==7.4.2
 # ML runtime - required for real inference (YOLOv8n + MobileNetV2).
 # Install the CPU wheels matching your platform; pin to the versions your
 # trained models were exported with.

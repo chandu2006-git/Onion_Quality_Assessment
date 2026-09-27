@@ -53,6 +53,10 @@ class InspectionSession {
       .where((o) => o.verification == VerificationOutcome.overridden)
       .length;
 
+  /// Bulbs where the inspector's decision genuinely differs from the AI
+  /// observation (computed from the recorded decisions, never assumed).
+  int get mismatchCount => observations.where((o) => o.isAiHumanMismatch).length;
+
   int get verifiedHealthyCount => observations
       .where((o) => o.recordedHealth == OnionHealth.healthy)
       .length;

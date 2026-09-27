@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../config/app_config.dart';
 import '../core/inspection_id.dart';
 import '../providers/inspection_provider.dart';
 import '../theme/app_theme.dart';
@@ -118,27 +119,19 @@ class _StartInspectionScreenState extends ConsumerState<StartInspectionScreen> {
                           _Field(
                             controller: _inspector,
                             label: 'Inspector Name *',
-                            hint: 'Name of the person performing the inspection',
+                            hint: AppConfig.inspectorHint,
                             validator: (value) =>
                                 (value == null || value.trim().isEmpty)
                                     ? 'Inspector name is required'
                                     : null,
                           ),
                           const SizedBox(height: AppTheme.md),
-                          _Field(
-                            controller: _location,
-                            label: 'Location *',
-                            hint: 'Pack-house, mandi, storage facility or site',
-                            validator: (value) =>
-                                (value == null || value.trim().isEmpty)
-                                    ? 'Location is required'
-                                    : null,
-                          ),
+                          _LocationField(controller: _location),
                           const SizedBox(height: AppTheme.md),
                           _Field(
                             controller: _batchLot,
                             label: 'Batch / Lot Number *',
-                            hint: 'Batch, lot or consignment reference',
+                            hint: AppConfig.batchHint,
                             validator: (value) =>
                                 (value == null || value.trim().isEmpty)
                                     ? 'Batch/Lot number is required'
@@ -204,6 +197,42 @@ class _Field extends StatelessWidget {
       validator: validator,
       textInputAction: TextInputAction.next,
       decoration: InputDecoration(labelText: label, hintText: hint),
+    );
+  }
+}
+
+/// Inspection location dropdown.
+///
+/// The options are ILLUSTRATIVE pilot-context sites only — the label says so
+/// explicitly so the demo never implies a live government deployment. The
+/// selected value feeds the existing session record (and the report) unchanged.
+class _LocationField extends StatelessWidget {
+  const _LocationField({required this.controller});
+
+  final TextEditingController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return DropdownButtonFormField<String>(
+      value: controller.text.isEmpty ? null : controller.text,
+      isExpanded: true,
+      decoration: const InputDecoration(
+        labelText: 'Inspection Location * (Illustrative / Pilot Context)',
+        hintText: 'Select location',
+      ),
+      items: [
+        for (final location in AppConfig.illustrativeLocations)
+          DropdownMenuItem<String>(
+            value: location,
+            child: Text(location, overflow: TextOverflow.ellipsis),
+          ),
+      ],
+      onChanged: (location) {
+        controller.text = location ?? '';
+      },
+      validator: (value) => (value == null || value.trim().isEmpty)
+          ? 'Select an inspection location'
+          : null,
     );
   }
 }

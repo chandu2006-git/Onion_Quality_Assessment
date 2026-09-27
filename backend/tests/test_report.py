@@ -5,7 +5,7 @@ import io
 
 from PIL import Image
 
-from app.services.report_generator import build_report
+from app.services.report_generator import _demo_qr_png, build_report
 from app.schemas.analysis import (
     HealthLabel,
     InspectionSummaryRequest,
@@ -49,6 +49,24 @@ def test_pdf_is_generated_from_verified_data():
     document = build_report(_payload())
     assert document.startswith(b"%PDF")
     assert len(document) > 2000
+
+
+def test_qr_reference_is_a_valid_png():
+    """The demo verification reference renders as a genuine PNG image."""
+    png = _demo_qr_png(_payload())
+    assert png.startswith(b"\x89PNG\r\n\x1a\n")
+    assert len(png) > 100
+
+
+def test_report_embeds_demo_qr_even_without_evidence_image():
+    """The QR code section is part of the report itself (not the evidence image).
+
+    With no annotated evidence image submitted, any raster image in the PDF can
+    only be the demo QR code.
+    """
+    document = build_report(_payload(annotated_image=None))
+    assert document.startswith(b"%PDF")
+    assert b"/Image" in document
 
 
 def test_pdf_embeds_annotated_evidence_image():

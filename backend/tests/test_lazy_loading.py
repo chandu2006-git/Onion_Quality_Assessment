@@ -5,8 +5,8 @@ they never fabricate inference:
 
 * the server starts without loading either model;
 * at rest neither model is resident in memory;
-* an analysis loads YOLOv8n, releases it, then loads MobileNetV2 and releases
-  it - both models are never resident at the same time;
+* an analysis loads YOLOv8n, releases it, then loads the MobileNetV2 (LiteRT)
+  classifier and releases it - both models are never resident at the same time;
 * the process-wide inference lock serialises the sequence and is always
   released, even when a load fails.
 
@@ -22,11 +22,30 @@ from fastapi.testclient import TestClient
 
 from app.config import settings
 from app.main import app
-from app.services.classifier import OnionHealthClassifier
 from app.services.model_registry import classifier, detector, inference_lock
 from tests.conftest import make_png_bytes
 
-MISSING_CLASSIFIER = "definitely_missing_model_for_tests.keras"
+MISSING_CLASSIFIER = "definitely_missing_model_for_tests.tflite"
+
+
+class _ClassifierPathOverride:
+    """Swaps ONLY the ``classifier_path`` seen by ``classifier.load()``.
+
+    The analysis route checks the real configured files first, so overriding
+    the classifier module's own ``settings`` reference lets the request reach
+    the pipeline (real YOLO phase included) and fail exactly at the classifier
+    load — the path the test is designed to exercise.
+    """
+
+    def __init__(self, real_settings):
+        self._real = real_settings
+
+    @property
+    def classifier_path(self):
+        return Path(MISSING_CLASSIFIER)
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
 
 
 def _upload(payload: bytes, filename: str = "sample.png", mime: str = "image/png"):
@@ -211,9 +230,14 @@ def test_classifier_failure_still_releases_detector_and_lock(client):
     detector.unload = recording_detector_unload
     classifier.load = recording_classifier_load
     classifier.unload = recording_classifier_unload
-    # Force the classifier's model-file lookup to fail (real load() code path).
-    original_path = OnionHealthClassifier.model_path
-    OnionHealthClassifier.model_path = property(lambda self: Path(MISSING_CLASSIFIER))
+    # Force the classifier's model-file lookup to fail (real load() code path):
+    # override the settings reference INSIDE the classifier module only, so the
+    # route-level file check still passes while classifier.load() sees a
+    # missing model file.
+    import app.services.classifier as classifier_module
+
+    original_classifier_settings = classifier_module.settings
+    classifier_module.settings = _ClassifierPathOverride(original_classifier_settings)
 
     try:
         response = client.post("/api/analyze", files=_upload(make_png_bytes()))
@@ -253,7 +277,7 @@ def test_classifier_failure_still_releases_detector_and_lock(client):
         detector.unload = real_detector_unload
         classifier.load = real_classifier_load
         classifier.unload = real_classifier_unload
-        OnionHealthClassifier.model_path = original_path
+        classifier_module.settings = original_classifier_settings
         # Clear the deliberately induced failure so later checks see true state.
         classifier.load_error = None
 

@@ -1,8 +1,11 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import '../models/onion_observation.dart';
 import '../theme/app_theme.dart';
 import '../theme/app_theme_data.dart';
+import 'onion_crop_thumb.dart';
 import 'status_widgets.dart';
 import 'surfaces.dart';
 import 'verification_controls.dart';
@@ -16,12 +19,16 @@ class OnionDetailPanel extends StatelessWidget {
     required this.onConfirmAi,
     required this.onOverride,
     required this.onClearReview,
+    this.sampleBytes,
   });
 
   final OnionObservation? observation;
   final VoidCallback onConfirmAi;
   final VoidCallback onOverride;
   final VoidCallback onClearReview;
+
+  /// Original sample, used to render the real cropped bulb thumbnail.
+  final Uint8List? sampleBytes;
 
   @override
   Widget build(BuildContext context) {
@@ -54,14 +61,39 @@ class OnionDetailPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            observation.displayLabel,
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.4,
-              color: AppTheme.primary,
-            ),
+          Row(
+            children: [
+              OnionCropThumb(
+                imageBytes: sampleBytes,
+                bbox: observation.bbox,
+                size: 64,
+                borderColor: aiColour,
+              ),
+              const SizedBox(width: AppTheme.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      observation.displayLabel,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.4,
+                        color: AppTheme.primary,
+                      ),
+                    ),
+                    const SizedBox(height: AppTheme.s4),
+                    Text(
+                      'AI \u2192 HUMAN \u2192 FINAL',
+                      style: AppTypo.label.copyWith(
+                        color: AppTheme.secondaryText,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: AppTheme.md),
           _Block(
@@ -132,15 +164,41 @@ class OnionDetailPanel extends StatelessWidget {
             accent: AppTheme.primary,
             surface: AppTheme.lightGreen,
             children: [
-              Text(
-                observation.recordedHealth ?? 'Pending review',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  color: observation.isReviewed
-                      ? AppTheme.primary
-                      : AppTheme.amberDark,
-                ),
+              Wrap(
+                spacing: AppTheme.s8,
+                runSpacing: AppTheme.s8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Text(
+                    observation.recordedHealth ?? 'Pending review',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: observation.isReviewed
+                          ? AppTheme.primary
+                          : AppTheme.amberDark,
+                    ),
+                  ),
+                  StatusChip(
+                    label: observation.finalStatusLabel,
+                    colour: observation.isReviewed
+                        ? (observation.isAiHumanMismatch
+                            ? AppTheme.amberDark
+                            : AppTheme.healthy)
+                        : AppTheme.amber,
+                    icon: observation.isReviewed
+                        ? (observation.isAiHumanMismatch
+                            ? Icons.compare_arrows
+                            : Icons.verified_outlined)
+                        : Icons.schedule,
+                  ),
+                  if (observation.isAiHumanMismatch)
+                    const StatusChip(
+                      label: 'AI–human mismatch',
+                      colour: AppTheme.amberDark,
+                      icon: Icons.compare_arrows,
+                    ),
+                ],
               ),
               const SizedBox(height: AppTheme.s8),
               Text(

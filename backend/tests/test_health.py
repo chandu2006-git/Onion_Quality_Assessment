@@ -77,12 +77,13 @@ def test_health_distinguishes_presence_memory_and_readiness(client):
 def test_detector_path_resolves_inside_backend_directory():
     assert settings.detector_path.parent == Path(settings.detector_path).parent
     assert Path(settings.MODEL_DETECTOR_PATH).name == "onion_detector_v1.pt"
-    assert Path(settings.MODEL_HEALTH_CLASSIFIER_PATH).name == "onion_health_mobilenetv2_best.keras"
+    assert Path(settings.MODEL_HEALTH_CLASSIFIER_PATH).name == "onion_health_mobilenetv2.tflite"
 
 
 def test_models_endpoint_exposes_technical_detail(client):
     payload = client.get("/api/models").json()
     assert payload["detector"]["architecture"] == "YOLOv8n"
     assert payload["classifier"]["architecture"] == "MobileNetV2"
-    assert payload["classifier"]["file_name"] == "onion_health_mobilenetv2_best.keras"
+    assert payload["classifier"]["runtime"] == "LiteRT"
+    assert payload["classifier"]["file_name"] == "onion_health_mobilenetv2.tflite"
     assert payload["max_upload_size_mb"] == settings.MAX_UPLOAD_SIZE_MB

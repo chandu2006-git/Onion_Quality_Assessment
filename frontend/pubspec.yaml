@@ -30,3 +30,8 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    # One-click demo samples for the inspection flow. Real images — the AI
+    # results for them are produced by the actual YOLOv8n + MobileNetV2 models.
+    # See assets/demo/CREDITS.md for attribution and licences.
+    - assets/demo/

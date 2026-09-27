@@ -91,6 +91,10 @@ def _styles():
             "Section", parent=styles["Heading2"], fontName="Helvetica-Bold", fontSize=11.5,
             leading=15, textColor=BRAND_GREEN, spaceBefore=10, spaceAfter=4,
         ),
+        "workflow": ParagraphStyle(
+            "Workflow", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=8.5,
+            leading=12, textColor=BRAND_GREEN_LIGHT, spaceBefore=4, spaceAfter=2,
+        ),
         "body": ParagraphStyle(
             "Body", parent=styles["Normal"], fontName="Helvetica", fontSize=9.5,
             leading=13.5, textColor=CHARCOAL,
@@ -136,6 +140,7 @@ def build_report(payload: InspectionSummaryRequest) -> bytes:
     story.extend(_summary(payload, styles))
     story.extend(_observation_table(payload, styles))
     story.extend(_evidence(payload, styles))
+    story.extend(_qr_section(payload, styles))
     story.extend(_models_section(styles))
     story.extend(_methodology_section(styles))
     story.extend(_verification_section(styles))
@@ -201,7 +206,13 @@ def _masthead(styles) -> List:
             ]
         )
     )
-    return [header, Spacer(1, 6), Paragraph("INSPECTION REPORT", styles["section"])]
+    return [
+        header,
+        Spacer(1, 6),
+        # Product principle, stated on every report.
+        Paragraph("AI MEASURES \u2192 HUMAN VERIFIES \u2192 EVIDENCE RECORDED", styles["workflow"]),
+        Paragraph("INSPECTION REPORT", styles["section"]),
+    ]
 
 
 def _inspection_information(payload: InspectionSummaryRequest, styles) -> List:
@@ -322,15 +333,30 @@ def _observation_table(payload: InspectionSummaryRequest, styles) -> List:
     table.setStyle(TableStyle(style))
     story.append(table)
     story.append(Spacer(1, 4))
+    # Verification summary (honest counts computed from the submitted data).
     counts = summarise(payload.verifications)
-    story.append(
-        Paragraph(
-            f"{counts['confirmed']} observation(s) confirmed, {counts['overridden']} overridden, "
-            f"{counts['pending']} pending. AI observations are preserved exactly as produced by the "
-            "classifier and are never overwritten by the human decision.",
-            styles["small"],
-        )
+    total = len(payload.detections)
+    mismatches = sum(
+        1
+        for item in payload.verifications
+        if item.verification_status.value == "overridden"
+        and item.human_decision is not None
+        and item.human_decision.value != item.ai_health.value
     )
+    if counts["pending"]:
+        verification_line = (
+            f"Verification summary: {total} bulb(s) inspected \u2014 {counts['confirmed']} AI confirmed, "
+            f"{mismatches} AI\u2013human mismatch(es), {counts['overridden']} override(s). "
+            f"VERIFICATION PENDING \u2014 {counts['pending']} of {total} bulb(s) still to review."
+        )
+    else:
+        verification_line = (
+            f"Verification summary: {total} bulb(s) inspected \u2014 {counts['confirmed']} AI confirmed, "
+            f"{mismatches} AI\u2013human mismatch(es), {counts['overridden']} override(s). "
+            f"Human verified {total}/{total} (100%); verified final result: "
+            f"{counts['verified_healthy']} Healthy / {counts['verified_unhealthy']} Unhealthy."
+        )
+    story.append(Paragraph(verification_line, styles["small"]))
     return story
 
 
@@ -360,8 +386,88 @@ def _evidence(payload: InspectionSummaryRequest, styles) -> List:
     return story
 
 
+def _demo_qr_reference(payload: InspectionSummaryRequest) -> str:
+    """Self-contained DEMO verification reference encoded in the QR code.
+
+    Deliberately NOT a URL: no public verification endpoint exists, so the QR
+    encodes plain inspection text that any scanner can display, clearly marked
+    as a demo reference (never an official government verification).
+    """
+    return (
+        "ONION DETECT - DEMO VERIFICATION REFERENCE\n"
+        f"Inspection: {payload.inspection_id}\n"
+        f"Batch: {payload.batch_lot}\n"
+        f"Inspector: {payload.inspector}\n"
+        f"Location: {payload.location}\n"
+        f"Generated: {_now()}\n"
+        "Demo only - not linked to any official government verification system. "
+        "AI-assisted record; human verified."
+    )
+
+
+def _demo_qr_png(payload: InspectionSummaryRequest) -> bytes:
+    """Render the demo verification reference as a PNG image."""
+    import qrcode  # imported lazily: only needed when a report is built
+
+    qr = qrcode.QRCode(
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        box_size=6,
+        border=2,
+    )
+    qr.add_data(_demo_qr_reference(payload))
+    qr.make(fit=True)
+    image = qr.make_image(fill_color="black", back_color="white")
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def _qr_section(payload: InspectionSummaryRequest, styles) -> List:
+    story = _section_title("5. Digital Verification (Demo QR)", styles)
+    try:
+        qr_image = PdfImage(io.BytesIO(_demo_qr_png(payload)))
+    except Exception:  # pragma: no cover - defensive
+        logger.warning("Demo QR reference could not be generated; omitting it from the report.")
+        story.append(
+            Paragraph(
+                "The demo verification reference could not be generated for this report.",
+                styles["small"],
+            )
+        )
+        return story
+    side = 30 * mm
+    qr_image.drawWidth = side
+    qr_image.drawHeight = side
+    caption = [
+        Paragraph("SCAN FOR DIGITAL VERIFICATION (DEMO)", styles["label"]),
+        Spacer(1, 4),
+        Paragraph(
+            f"Encodes a self-contained demo reference for inspection <b>{payload.inspection_id}</b> "
+            f"(batch {payload.batch_lot}). Scanning displays the inspection reference text. "
+            "This is a DEMO verification reference only: ONION DETECT is not connected to any "
+            "official government verification system, and scanning does not constitute official "
+            "verification or certification.",
+            styles["body"],
+        ),
+    ]
+    table = Table([[qr_image, caption]], colWidths=[36 * mm, 132 * mm])
+    table.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                ("TOPPADDING", (0, 0), (-1, -1), 2),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+            ]
+        )
+    )
+    story.append(table)
+    return story
+
+
 def _models_section(styles) -> List:
-    story = _section_title("5. Models Used", styles)
+    story = _section_title("6. Models Used", styles)
     rows = [
         [
             Paragraph("ROLE", styles["label"]),
@@ -393,7 +499,7 @@ def _models_section(styles) -> List:
 
 
 def _methodology_section(styles) -> List:
-    return _section_title("6. Methodology Note", styles) + [
+    return _section_title("7. Methodology Note", styles) + [
         Paragraph(
             "Each detected onion is individually cropped and evaluated by the health classification model. "
             "Detection confidence describes how confidently the bulb was located; health confidence "
@@ -404,13 +510,13 @@ def _methodology_section(styles) -> List:
 
 
 def _verification_section(styles) -> List:
-    return _section_title("7. Human Verification Statement", styles) + [
+    return _section_title("8. Human Verification Statement", styles) + [
         Paragraph(VERIFICATION_STATEMENT, styles["body"])
     ]
 
 
 def _limitations_section(styles) -> List:
-    story = _section_title("8. Limitations and Standards Context", styles)
+    story = _section_title("9. Limitations and Standards Context", styles)
     story.append(Paragraph(STANDARDS_NOTE, styles["body"]))
     story.append(Spacer(1, 5))
     for limitation in LIMITATIONS:
@@ -419,12 +525,18 @@ def _limitations_section(styles) -> List:
 
 
 def _disclaimer(styles) -> List:
-    return _section_title("9. Disclaimer", styles) + [
+    return _section_title("10. Disclaimer", styles) + [
         Paragraph(
             "AI observations are subject to human verification and should not be treated as a substitute "
             "for expert or regulatory inspection.",
             styles["body"],
-        )
+        ),
+        Spacer(1, 4),
+        Paragraph(
+            "AI classification is subject to human verification. This report is an "
+            "inspection-support record and is not a regulatory certification.",
+            styles["body"],
+        ),
     ]
 
 

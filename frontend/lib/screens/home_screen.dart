@@ -21,6 +21,7 @@ class HomeScreen extends StatelessWidget {
           children: const [
             _HeroSection(),
             _MetricsBand(),
+            _OperationalSnapshotSection(),
             _WhySection(),
             _HowItWorksSection(),
             _StandardsContextSection(),
@@ -138,8 +139,9 @@ class _HeroText extends StatelessWidget {
         ),
         const SizedBox(height: AppTheme.lg),
         Text(
-          'An AI-assisted visual inspection workflow that identifies individual '
-          'onion bulbs, evaluates their health condition, and records the '
+          'AI-assisted visual inspection for faster, traceable and '
+          'human-verified onion quality assessment — identifying individual '
+          'onion bulbs, evaluating their health condition, and recording the '
           'observations for human verification.',
           style: AppTextStyles.body.copyWith(color: AppTheme.lightGreen),
         ),
@@ -462,6 +464,107 @@ class _WhySection extends StatelessWidget {
 }
 
 
+/// ILLUSTRATIVE pilot-scale scenario. These are projected figures for a demo
+/// narrative — never presented as measured or live government data.
+class _OperationalSnapshotSection extends StatelessWidget {
+  const _OperationalSnapshotSection();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      color: AppTheme.white,
+      padding: const EdgeInsets.symmetric(vertical: AppTheme.xxl),
+      child: ContentContainer(
+        maxWidth: AppTheme.maxContentWidth,
+        padding: EdgeInsets.symmetric(
+          horizontal: MediaQuery.sizeOf(context).width < 700
+              ? AppTheme.gutter
+              : AppTheme.s48,
+          vertical: AppTheme.s8,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SectionHeading(
+              title: 'Operational snapshot',
+              subtitle: 'ILLUSTRATIVE PILOT SCENARIO — projected scale for a '
+                  'demo narrative, not measured live data.',
+            ),
+            const SizedBox(height: AppTheme.lg),
+            PanelCard(
+              label: 'Illustrative pilot scenario',
+              borderColour: AppTheme.secondaryGreen,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const ResponsiveCardGrid(
+                    minCardWidth: 180,
+                    maxColumns: 5,
+                    children: [
+                      MetricCard(
+                        value: '25',
+                        title: 'CENTERS',
+                        description: 'Illustrative participating centers',
+                        icon: Icons.location_city_outlined,
+                      ),
+                      MetricCard(
+                        value: '100',
+                        title: 'AVG. INSPECTIONS / DAY',
+                        description: 'Assumed throughput per center',
+                        icon: Icons.assignment_outlined,
+                      ),
+                      MetricCard(
+                        value: '300',
+                        title: 'OPERATING DAYS',
+                        description: 'Assumed annual operating calendar',
+                        icon: Icons.calendar_month_outlined,
+                      ),
+                      MetricCard(
+                        value: '7.5 LAKH',
+                        title: 'DIGITAL INSPECTIONS / YEAR',
+                        description: '25 × 100 × 300 = 750,000',
+                        icon: Icons.insights_outlined,
+                        valueColour: AppTheme.secondaryGreen,
+                      ),
+                      MetricCard(
+                        value: '\u2248 15 MILLION',
+                        title: 'ONIONS ASSESSED / YEAR',
+                        description: '750,000 × ≈20 onions per inspection',
+                        icon: Icons.scatter_plot_outlined,
+                        valueColour: AppTheme.secondaryGreen,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppTheme.lg),
+                  const Divider(height: AppTheme.lg, color: AppTheme.border),
+                  Text(
+                    '*Scenario calculation based on assumed deployment scale. '
+                    'Not measured live data.',
+                    style: AppTypo.meta.copyWith(
+                      fontStyle: FontStyle.italic,
+                      color: AppTheme.amberDark,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: AppTheme.s8),
+                  const Text(
+                    'These figures illustrate the potential reach of an '
+                    'AI-assisted workflow at pilot scale. They are not current '
+                    'government deployment data and no live system is queried.',
+                    style: AppTypo.meta,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+
 class _StandardsContextSection extends StatelessWidget {
   const _StandardsContextSection();
 
@@ -484,7 +587,8 @@ class _StandardsContextSection extends StatelessWidget {
           children: const [
             SectionHeading(
               title: 'Standards & quality context',
-              subtitle: 'Reference context only — ONION DETECT does not assign official grades.',
+              subtitle:
+                  'Standards-informed workflow — domain reference context only. ONION DETECT does not assign official grades and is not integrated with any of these bodies.',
             ),
             SizedBox(height: AppTheme.lg),
             ResponsiveCardGrid(
@@ -492,16 +596,30 @@ class _StandardsContextSection extends StatelessWidget {
               maxColumns: 2,
               children: [
                 PanelCard(
-                  label: 'AGMARK reference',
+                  label: 'AGMARK — quality reference',
                   child: Text(
                     'Indian grade standards for onions define quality requirements across specified grades and include parameters relating to firmness, compactness, cleanliness, sprouting and specified defects.',
                     style: AppTypo.body,
                   ),
                 ),
                 PanelCard(
-                  label: 'APEDA reference',
+                  label: 'APEDA — export / pack-house context',
                   child: Text(
                     'APEDA provides export-oriented agricultural quality, pack-house and traceability frameworks relevant to fresh produce supply chains.',
+                    style: AppTypo.body,
+                  ),
+                ),
+                PanelCard(
+                  label: 'e-NAM — digital quality-assaying context',
+                  child: Text(
+                    'e-NAM references electronic market aggregation and quality-assaying practices in agricultural markets — useful context for digitised quality records.',
+                    style: AppTypo.body,
+                  ),
+                ),
+                PanelCard(
+                  label: 'NAFED / NCCF — procurement ecosystem context',
+                  child: Text(
+                    'Cooperative procurement and certification bodies form the wider onion quality ecosystem this workflow is designed to support. Reference context only — no API or live data connection exists.',
                     style: AppTypo.body,
                   ),
                 ),

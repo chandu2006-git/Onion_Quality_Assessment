@@ -1,8 +1,11 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import '../models/onion_observation.dart';
 import '../theme/app_theme.dart';
 import '../theme/app_theme_data.dart';
+import 'onion_crop_thumb.dart';
 import 'status_widgets.dart';
 import 'verification_controls.dart';
 
@@ -16,6 +19,7 @@ class OnionVerificationTile extends StatelessWidget {
     required this.onConfirmAi,
     required this.onOverride,
     required this.onClearReview,
+    this.sampleBytes,
   });
 
   final OnionObservation observation;
@@ -24,6 +28,9 @@ class OnionVerificationTile extends StatelessWidget {
   final VoidCallback onConfirmAi;
   final VoidCallback onOverride;
   final VoidCallback onClearReview;
+
+  /// Original sample, used to render the real cropped bulb thumbnail.
+  final Uint8List? sampleBytes;
 
   @override
   Widget build(BuildContext context) {
@@ -46,6 +53,13 @@ class OnionVerificationTile extends StatelessWidget {
         children: [
           Row(
             children: [
+              OnionCropThumb(
+                imageBytes: sampleBytes,
+                bbox: observation.bbox,
+                size: 52,
+                borderColor: OnionHealth.colourFor(observation.aiHealth),
+              ),
+              const SizedBox(width: AppTheme.s12),
               Expanded(
                 child: Text(
                   observation.displayLabel,
@@ -67,7 +81,7 @@ class OnionVerificationTile extends StatelessWidget {
           const SizedBox(height: AppTheme.s8),
           Row(
             children: [
-              const Expanded(child: Text('AI OBSERVATION', style: AppTypo.label)),
+              const Expanded(child: Text('AI ASSESSMENT', style: AppTypo.label)),
               StatusChip(
                 label: observation.aiHealth,
                 colour: OnionHealth.colourFor(observation.aiHealth),
@@ -75,6 +89,26 @@ class OnionVerificationTile extends StatelessWidget {
               ),
             ],
           ),
+          if (observation.isAiHumanMismatch) ...[
+            const SizedBox(height: AppTheme.s8),
+            Wrap(
+              spacing: AppTheme.s8,
+              runSpacing: AppTheme.s4,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                const StatusChip(
+                  label: 'AI–human mismatch',
+                  colour: AppTheme.amberDark,
+                  icon: Icons.compare_arrows,
+                ),
+                Text(
+                  'Inspector recorded ${observation.humanDecision} against '
+                  'AI ${observation.aiHealth}',
+                  style: AppTypo.meta,
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: AppTheme.s8),
           Row(
             children: [

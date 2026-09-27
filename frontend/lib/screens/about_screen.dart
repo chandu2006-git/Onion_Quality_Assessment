@@ -33,6 +33,8 @@ class AboutScreen extends ConsumerWidget {
               _TechnicalInformation(statusAsync: statusAsync),
               const SizedBox(height: AppTheme.xl),
               _StandardsDisclaimer(),
+              const SizedBox(height: AppTheme.xl),
+              const _DemoSampleCredits(),
               const SizedBox(height: AppTheme.xxl),
               const AppFooter(),
             ],
@@ -342,6 +344,40 @@ class _StandardsDisclaimer extends StatelessWidget {
         'It does not provide disease-specific diagnosis.',
         'It does not replace regulatory or expert inspection.',
       ],
+    );
+  }
+}
+
+/// Photo credits for the bundled one-click demo samples (licence compliance).
+class _DemoSampleCredits extends StatelessWidget {
+  const _DemoSampleCredits();
+
+  @override
+  Widget build(BuildContext context) {
+    return const PanelCard(
+      label: 'Demo sample image credits',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'The three one-click demo photographs are freely licensed images '
+                'from Wikimedia Commons. They are sample inputs only — every '
+                'result shown for them is produced by the real AI pipeline at '
+                'runtime, never stored or precomputed.',
+            style: AppTypo.body,
+          ),
+          SizedBox(height: AppTheme.md),
+          Text(
+            '“Single Onion” — onion bulb by Muhammad Mahdi Karim '
+                '(GNU Free Documentation License 1.2+), cropped.\n'
+                '“Multiple Onions” — basket by Temmydolph '
+                '(CC BY-SA 4.0).\n'
+                '“Quality Variation” — Barkin Dogo Market pile by '
+                'Samsule2 (CC BY-SA 4.0).',
+            style: AppTypo.meta,
+          ),
+        ],
+      ),
     );
   }
 }

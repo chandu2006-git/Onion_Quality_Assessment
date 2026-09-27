@@ -59,13 +59,12 @@ def models() -> dict:
             "error": detector.load_error,
         },
         "classifier": {
-            "architecture": classifier.backend,
+            # The TFLite artefact is the trained MobileNetV2 model, executed by
+            # the LiteRT runtime (no TensorFlow dependency at inference time).
+            "architecture": "MobileNetV2",
+            "runtime": classifier.backend,
             "file_name": settings.classifier_path.name,
             "loaded": classifier.loaded,
-            "input_size": classifier.input_size,
-            "activation": classifier.activation,
-            "output_units": classifier.output_units,
-            "class_names": classifier.class_names,
             "error": classifier.load_error,
         },
         "confidence_threshold": settings.CONFIDENCE_THRESHOLD,

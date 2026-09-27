@@ -13,7 +13,9 @@ import '../theme/app_theme.dart';
 import '../theme/app_theme_data.dart';
 import '../widgets/analysis_activity.dart';
 import '../widgets/app_shell.dart';
+import '../widgets/demo_samples_panel.dart';
 import '../widgets/feedback.dart';
+import '../widgets/inspection_status_strip.dart';
 import '../widgets/responsive_layout.dart';
 import '../widgets/status_widgets.dart';
 import '../widgets/surfaces.dart';
@@ -87,7 +89,11 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _CaptureHeader(session: session),
+              _CaptureHeader(
+                session: session,
+                analysing: state.analysisRunning,
+                aiActive: backend.value?.ready ?? false,
+              ),
               const SizedBox(height: AppTheme.lg),
               backend.when(
                 loading: () => const LinearProgressIndicator(minHeight: 2),
@@ -187,6 +193,9 @@ class _UploadColumn extends StatelessWidget {
             message: fileError!,
           ),
         ],
+        const SizedBox(height: AppTheme.md),
+        // DEMO IMAGES — one-click samples feeding the existing pipeline.
+        const DemoSamplesPanel(),
         const SizedBox(height: AppTheme.md),
         if (bytes != null && bytes.isNotEmpty)
           _SamplePreview(session: session)
@@ -302,9 +311,13 @@ class _ActionColumn extends StatelessWidget {
         if (state.analysisError != null) ...[
           const SizedBox(height: AppTheme.md),
           InfoBanner(
-            title: 'Inspection could not be completed',
+            title: 'AI analysis unavailable',
             severity: BannerSeverity.error,
             message: state.analysisError!,
+            details: const [
+              'Please check the inspection service and try again.',
+              'No result is shown unless the real models completed the analysis.',
+            ],
           ),
         ],
         const SizedBox(height: AppTheme.md),
@@ -318,21 +331,26 @@ class _ActionColumn extends StatelessWidget {
 }
 
 class _CaptureHeader extends StatelessWidget {
-  const _CaptureHeader({required this.session});
+  const _CaptureHeader({
+    required this.session,
+    required this.analysing,
+    required this.aiActive,
+  });
 
-  final dynamic session;
+  final InspectionSession session;
+  final bool analysing;
+  final bool aiActive;
 
   @override
   Widget build(BuildContext context) {
+    final illustrative = AppConfig.isIllustrativeLocation(session.location);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SectionHeading(title: 'Capture onion sample'),
-        const SizedBox(height: AppTheme.s12),
-        const Text(
-          'Submit a clear image containing one or more onion bulbs for '
-          'AI-assisted inspection.',
-          style: AppTypo.body,
+        const SectionHeading(
+          title: 'Inspection details',
+          subtitle: 'Sample submission runs through the real AI inference '
+              'pipeline — YOLOv8n detection and MobileNetV2 classification.',
         ),
         const SizedBox(height: AppTheme.md),
         Wrap(
@@ -340,22 +358,41 @@ class _CaptureHeader extends StatelessWidget {
           runSpacing: AppTheme.s8,
           children: [
             StatusChip(
-              label: session.id.toString(),
+              label: session.id,
               colour: AppTheme.primary,
               icon: Icons.assignment_outlined,
             ),
             StatusChip(
-              label: session.inspector.toString(),
+              label: session.inspector,
               colour: AppTheme.secondaryGreen,
               icon: Icons.person_outline,
             ),
             StatusChip(
-              label: session.batchLot.toString(),
+              label: session.batchLot,
               colour: AppTheme.secondaryGreen,
               icon: Icons.inventory_2_outlined,
             ),
+            StatusChip(
+              label: session.location,
+              colour: AppTheme.secondaryGreen,
+              icon: Icons.place_outlined,
+            ),
+            if (illustrative)
+              const StatusChip(
+                label: 'Pilot demo',
+                colour: AppTheme.amberDark,
+                icon: Icons.science_outlined,
+              ),
+            if (aiActive)
+              const StatusChip(
+                label: 'AI inference active',
+                colour: AppTheme.healthy,
+                icon: Icons.smart_toy_outlined,
+              ),
           ],
         ),
+        const SizedBox(height: AppTheme.md),
+        InspectionStatusStrip.forCapture(analysing: analysing),
       ],
     );
   }

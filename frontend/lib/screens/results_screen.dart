@@ -13,6 +13,8 @@ import '../theme/app_theme_data.dart';
 import '../widgets/app_shell.dart';
 import '../widgets/evidence_view.dart';
 import '../widgets/feedback.dart';
+import '../widgets/inspection_record_panel.dart';
+import '../widgets/inspection_status_strip.dart';
 import '../widgets/onion_detail_panel.dart';
 import '../widgets/onion_verification_tile.dart';
 import '../widgets/responsive_layout.dart';
@@ -66,6 +68,16 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
                 healthy: analysis.healthyCount,
                 unhealthy: analysis.unhealthyCount,
               ),
+              const SizedBox(height: AppTheme.md),
+              InspectionStatusStrip.forResults(
+                verificationPending: session.pendingCount > 0,
+                reportReady: state.reportNotice != null,
+              ),
+              const SizedBox(height: AppTheme.xl),
+              InspectionRecordPanel(
+                session: session,
+                modelInfo: analysis.modelInfo,
+              ),
               const SizedBox(height: AppTheme.xl),
               _SummaryCards(
                 total: analysis.totalOnions,
@@ -83,6 +95,7 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
               const SizedBox(height: AppTheme.xl),
               OnionDetailPanel(
                 observation: session.observationById(selectedId),
+                sampleBytes: session.sampleBytes,
                 onConfirmAi: () {
                   final id = selectedId;
                   if (id != null) {
@@ -158,7 +171,11 @@ class _ResultsHeader extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SectionHeading(title: 'INSPECTION RESULTS'),
+        const SectionHeading(
+          title: 'Inspection results',
+          subtitle: 'Every value below was produced by the AI pipeline and is '
+              'awaiting (or has received) human verification.',
+        ),
         const SizedBox(height: AppTheme.s12),
         Wrap(
           spacing: AppTheme.s12,
@@ -171,8 +188,6 @@ class _ResultsHeader extends StatelessWidget {
             StatusChip(label: session.formattedTimestamp, colour: AppTheme.charcoal),
           ],
         ),
-        const SizedBox(height: AppTheme.md),
-        const Text('AI ANALYSIS COMPLETE', style: AppTypo.label),
       ],
     );
   }
@@ -292,6 +307,7 @@ class _VerificationSection extends StatelessWidget {
         else
           _VerificationList(
             observations: observations,
+            sampleBytes: session.sampleBytes,
             selectedId: selectedId,
             onSelect: onSelect,
             onConfirmAi: onConfirmAi,
@@ -328,6 +344,7 @@ class _VerificationHeader extends StatelessWidget {
 class _VerificationList extends StatelessWidget {
   const _VerificationList({
     required this.observations,
+    required this.sampleBytes,
     required this.selectedId,
     required this.onSelect,
     required this.onConfirmAi,
@@ -336,6 +353,7 @@ class _VerificationList extends StatelessWidget {
   });
 
   final List<OnionObservation> observations;
+  final Uint8List? sampleBytes;
   final int? selectedId;
   final ValueChanged<int?> onSelect;
   final void Function(int id) onConfirmAi;
@@ -353,6 +371,7 @@ class _VerificationList extends StatelessWidget {
         final observation = observations[index];
         return OnionVerificationTile(
           observation: observation,
+          sampleBytes: sampleBytes,
           selected: observation.id == selectedId,
           onSelect: () => onSelect(observation.id),
           onConfirmAi: () => onConfirmAi(observation.id),
@@ -379,19 +398,48 @@ class _VerificationProgress extends StatelessWidget {
     final total = session.totalCount;
     final reviewed = session.reviewedCount;
     final progress = total == 0 ? 0.0 : reviewed / total;
+    final complete = total > 0 && reviewed == total;
     return PanelCard(
-      label: 'Verification progress',
-      borderColour: AppTheme.amber,
+      label: 'Verification summary',
+      borderColour: complete ? AppTheme.secondaryGreen : AppTheme.amber,
+      trailing: StatusChip(
+        label: complete ? 'Verified · 100%' : 'Verification pending',
+        colour: complete ? AppTheme.healthy : AppTheme.amberDark,
+        icon: complete ? Icons.verified_outlined : Icons.schedule,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Wrap(
+            spacing: AppTheme.xl,
+            runSpacing: AppTheme.md,
+            children: [
+              _Stat(value: '${session.totalCount}', label: 'Total inspected'),
+              _Stat(
+                value: '${session.confirmedCount}',
+                label: 'AI confirmed',
+                valueColour: AppTheme.secondaryGreen,
+              ),
+              _Stat(
+                value: '${session.mismatchCount}',
+                label: 'AI–Human mismatches',
+                valueColour: session.mismatchCount > 0
+                    ? AppTheme.amberDark
+                    : AppTheme.secondaryText,
+              ),
+              _Stat(
+                value: '$reviewed / $total',
+                label: 'Human verified',
+                valueColour: complete ? AppTheme.secondaryGreen : AppTheme.amberDark,
+              ),
+            ],
+          ),
+          const SizedBox(height: AppTheme.lg),
           Row(
             children: [
-              Text('$reviewed of $total onions reviewed',
-                  style: AppTypo.body),
+              Text('$reviewed of $total onions reviewed', style: AppTypo.body),
               const Spacer(),
-              Text('${(progress * 100).toStringAsFixed(0)}%',
-                  style: AppTypo.body),
+              Text('${(progress * 100).toStringAsFixed(0)}%', style: AppTypo.body),
             ],
           ),
           const SizedBox(height: AppTheme.s8),
@@ -410,10 +458,57 @@ class _VerificationProgress extends StatelessWidget {
               StatusChip(
                   label: 'Overridden ${session.overriddenCount}',
                   colour: AppTheme.amberDark),
+              if (session.mismatchCount > 0)
+                StatusChip(
+                    label: 'AI–human mismatch ${session.mismatchCount}',
+                    colour: AppTheme.amberDark,
+                    icon: Icons.compare_arrows),
             ],
+          ),
+          const SizedBox(height: AppTheme.md),
+          Text(
+            complete
+                ? 'All bulbs reviewed. AI observations stay preserved next to '
+                    'the human decisions in the report.'
+                : 'Verification pending — the report cannot be generated until '
+                    'every bulb has been reviewed. Progress reflects reviewed '
+                    'bulbs only.',
+            style: AppTypo.meta,
           ),
         ],
       ),
+    );
+  }
+}
+
+class _Stat extends StatelessWidget {
+  const _Stat({
+    required this.value,
+    required this.label,
+    this.valueColour = AppTheme.primary,
+  });
+
+  final String value;
+  final String label;
+  final Color valueColour;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.w700,
+            color: valueColour,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(label.toUpperCase(), style: AppTypo.label),
+      ],
     );
   }
 }
