@@ -3,11 +3,15 @@ import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../config/app_config.dart';
+import '../config/demo_results.dart';
+import '../config/grades.dart';
 import '../core/api_exception.dart';
 import '../core/inspection_id.dart';
+import '../models/analysis_result.dart';
 import '../models/inspection_session.dart';
 import '../models/onion_observation.dart';
 import '../services/api_service.dart';
+import '../services/demo_evidence.dart';
 import '../services/file_saver.dart';
 import 'api_provider.dart';
 
@@ -135,7 +139,8 @@ class InspectionNotifier extends StateNotifier<InspectionState> {
       ..sampleBytes = bytes
       ..sampleFileName = fileName
       ..sampleSizeBytes = sizeBytes
-      ..analysis = null;
+      ..analysis = null
+      ..resetGrade();
     state = state.copyWith(
       phase: AnalysisPhase.idle,
       uploadProgress: 0,
@@ -153,7 +158,8 @@ class InspectionNotifier extends StateNotifier<InspectionState> {
       ..sampleBytes = null
       ..sampleFileName = null
       ..sampleSizeBytes = null
-      ..analysis = null;
+      ..analysis = null
+      ..resetGrade();
     state = state.copyWith(
       phase: AnalysisPhase.idle,
       uploadProgress: 0,
@@ -200,6 +206,15 @@ class InspectionNotifier extends StateNotifier<InspectionState> {
         },
       );
       current.analysis = result;
+      // Transparent, deterministic grade recommendation for real AI results
+      // (demo scenarios carry their own fixed recommendation).
+      current
+        ..recommendedGrade = QualityGrade.recommend(
+          healthy: result.healthyCount,
+          unhealthy: result.unhealthyCount,
+        )
+        ..gradeDecision = GradeDecision.pending
+        ..humanGrade = null;
       state = state.copyWith(
         phase: AnalysisPhase.completed,
         uploadProgress: 1,
@@ -219,6 +234,76 @@ class InspectionNotifier extends StateNotifier<InspectionState> {
             'Please try again or contact the system administrator.',
       );
     }
+  }
+
+  /// Opens a FIXED demonstration scenario instantly.
+  ///
+  /// No service, model loading or network request is involved: the result
+  /// comes entirely from the bundled [DemoScenario] dataset, so the demo
+  /// workflow keeps working even when the backend is completely offline.
+  /// Every bulb starts in the PENDING human-verification state and the
+  /// grade decision starts at PENDING — nothing is pre-verified.
+  void applyDemoResult({
+    required DemoScenario scenario,
+    required Uint8List imageBytes,
+    required String fileName,
+    DemoEvidence? evidence,
+  }) {
+    final current = state.session;
+    if (current == null) return;
+
+    final annotated = evidence?.bytes ?? Uint8List(0);
+    current
+      ..sampleBytes = imageBytes
+      ..sampleFileName = fileName
+      ..sampleSizeBytes = imageBytes.length
+      ..analysis = AnalysisResult(
+        totalOnions: scenario.totalOnions,
+        healthyCount: scenario.healthyCount,
+        unhealthyCount: scenario.unhealthyCount,
+        observations: buildDemoObservations(scenario),
+        imageWidth: scenario.imageWidth,
+        imageHeight: scenario.imageHeight,
+        annotatedImageWidth: evidence?.width ?? scenario.imageWidth,
+        annotatedImageHeight: evidence?.height ?? scenario.imageHeight,
+        annotatedImage: annotated,
+        // Explicitly not model output — the record panel renders demo rows.
+        modelInfo: const <String, String>{
+          'detector': 'Not executed (fixed demo scenario)',
+          'classifier': 'Not executed (fixed demo scenario)',
+        },
+        isDemo: true,
+        scenarioId: scenario.id,
+        scenarioTitle: scenario.title,
+        scenarioNotes: scenario.observations,
+      )
+      ..recommendedGrade = scenario.recommendedGrade
+      ..gradeDecision = GradeDecision.pending
+      ..humanGrade = null;
+
+    state = InspectionState(
+      session: current,
+      phase: AnalysisPhase.completed,
+      uploadProgress: 1,
+    );
+  }
+
+  /// Accept the recommended quality grade.
+  void confirmGrade() {
+    state.session?.confirmGrade();
+    _emitVerificationChange();
+  }
+
+  /// Record a different final grade; the recommendation is preserved.
+  void overrideGradeWith(String grade) {
+    state.session?.overrideGrade(grade);
+    _emitVerificationChange();
+  }
+
+  /// Return the grade decision to PENDING.
+  void clearGradeDecision() {
+    state.session?.clearGradeDecision();
+    _emitVerificationChange();
   }
 
   void selectOnion(int? id) {

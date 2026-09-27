@@ -3,6 +3,7 @@
 import base64
 import io
 
+import pytest
 from PIL import Image
 
 from app.services.report_generator import _demo_qr_png, build_report
@@ -105,3 +106,111 @@ def test_report_summary_describes_the_document(client):
     roles = {model["role"] for model in payload["models"]}
     assert roles == {"Object Detection", "Health Classification"}
     assert any("No disease-specific diagnosis." == item for item in payload["limitations"])
+
+
+# --------------------------------------------------------------------------- #
+# Demo provenance + quality-grade workflow
+# --------------------------------------------------------------------------- #
+def _demo_payload() -> InspectionSummaryRequest:
+    """Same verified inspection, marked as a fixed demonstration scenario."""
+    data = _payload().model_dump()
+    data.update(
+        is_demo=True,
+        demo_scenario="01 - Healthy majority (5 healthy / 2 unhealthy)",
+        demo_observations=[
+            "7 bulbs detected on the bundled sample photograph.",
+            "Spec split matches the demonstration dataset.",
+        ],
+        recommended_grade="GRADE B",
+        final_grade="GRADE B",
+        grade_decision="confirmed",
+    )
+    return InspectionSummaryRequest(**data)
+
+
+def _pdf_text(document: bytes) -> str:
+    """Extract the visible text of a generated PDF (whitespace-normalised)."""
+    pypdf = pytest.importorskip("pypdf")
+    reader = pypdf.PdfReader(io.BytesIO(document))
+    text = "\n".join(page.extract_text() or "" for page in reader.pages)
+    return " ".join(text.split())
+
+
+def test_summary_schema_defaults_demo_and_grade_fields():
+    """A plain (non-demo) payload keeps every new field optional."""
+    payload = _payload()
+    assert payload.is_demo is False
+    assert payload.demo_scenario is None
+    assert payload.demo_observations is None
+    assert payload.recommended_grade is None
+    assert payload.final_grade is None
+    assert payload.grade_decision is None
+
+
+def test_summary_schema_accepts_explicit_nulls_from_frontend():
+    """The frontend submits explicit nulls for demo/grade keys — accepted."""
+    data = _payload().model_dump()
+    data.update(
+        is_demo=False,
+        demo_scenario=None,
+        demo_observations=None,
+        recommended_grade=None,
+        final_grade=None,
+        grade_decision=None,
+    )
+    payload = InspectionSummaryRequest(**data)
+    assert payload.is_demo is False
+    assert payload.recommended_grade is None
+
+
+def test_demo_report_contains_banner_grade_block_and_demo_disclaimer():
+    document = build_report(_demo_payload())
+    assert document.startswith(b"%PDF")
+    text = _pdf_text(document)
+    # Prominent DEMO MODE banner + honest provenance.
+    assert "DEMO MODE" in text
+    assert "No AI model was executed" in text
+    assert "01 - Healthy majority (5 healthy / 2 unhealthy)" in text
+    # Quality grade block: recommendation, final grade and human decision.
+    assert "QUALITY GRADE RECOMMENDATION" in text
+    assert "FINAL GRADE (HUMAN)" in text
+    assert "GRADE DECISION" in text
+    assert "GRADE B" in text
+    assert "Confirmed" in text
+    assert "Under Relaxed Specifications" in text
+    # Demo disclaimer + DEMO QR label.
+    assert "fixed demonstration scenario" in text.lower()
+    assert "SCAN FOR DIGITAL VERIFICATION (DEMO)" in text
+
+
+def test_real_report_has_grade_block_but_no_demo_banner():
+    data = _payload().model_dump()
+    data.update(
+        recommended_grade="GRADE A",
+        final_grade="GRADE A",
+        grade_decision="confirmed",
+    )
+    text = _pdf_text(build_report(InspectionSummaryRequest(**data)))
+    assert "QUALITY GRADE RECOMMENDATION" in text
+    assert "GRADE A" in text
+    assert "DEMO MODE" not in text
+
+
+def test_undecided_grade_shows_pending_everywhere():
+    data = _payload().model_dump()
+    data.update(
+        recommended_grade="URS",
+        final_grade="PENDING",
+        grade_decision="pending",
+    )
+    text = _pdf_text(build_report(InspectionSummaryRequest(**data)))
+    assert "URS" in text
+    assert "PENDING" in text
+    assert "Pending" in text
+
+
+def test_report_endpoint_accepts_demo_payload(client):
+    response = client.post("/api/report", json=_demo_payload().model_dump(mode="json"))
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.content.startswith(b"%PDF")

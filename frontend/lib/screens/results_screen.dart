@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../config/grades.dart';
 import '../models/analysis_result.dart';
 import '../models/inspection_session.dart';
 import '../models/onion_observation.dart';
@@ -86,6 +87,16 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
                 session: session,
               ),
               const SizedBox(height: AppTheme.xl),
+              _GradePanel(
+                session: session,
+                analysis: analysis,
+                onConfirm: ref.read(inspectionProvider.notifier).confirmGrade,
+                onOverride:
+                    ref.read(inspectionProvider.notifier).overrideGradeWith,
+                onClear:
+                    ref.read(inspectionProvider.notifier).clearGradeDecision,
+              ),
+              const SizedBox(height: AppTheme.xl),
               _EvidenceSection(
                 analysis: analysis,
                 originalBytes: session.sampleBytes,
@@ -96,6 +107,7 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
               OnionDetailPanel(
                 observation: session.observationById(selectedId),
                 sampleBytes: session.sampleBytes,
+                isDemo: session.isDemo,
                 onConfirmAi: () {
                   final id = selectedId;
                   if (id != null) {
@@ -171,10 +183,14 @@ class _ResultsHeader extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SectionHeading(
+        SectionHeading(
           title: 'Inspection results',
-          subtitle: 'Every value below was produced by the AI pipeline and is '
-              'awaiting (or has received) human verification.',
+          subtitle: session.isDemo
+              ? 'Fixed demonstration scenario — stored detection evidence '
+                  'awaiting human verification; no AI inference ran for this '
+                  'result.'
+              : 'Every value below was produced by the AI pipeline and is '
+                  'awaiting (or has received) human verification.',
         ),
         const SizedBox(height: AppTheme.s12),
         Wrap(
@@ -185,6 +201,13 @@ class _ResultsHeader extends StatelessWidget {
             StatusChip(label: session.inspector, colour: AppTheme.secondaryGreen),
             StatusChip(label: session.location, colour: AppTheme.secondaryGreen),
             StatusChip(label: session.batchLot, colour: AppTheme.secondaryGreen),
+            StatusChip(
+              label: session.isDemo ? 'Demo mode' : 'AI inference active',
+              colour: session.isDemo ? AppTheme.amberDark : AppTheme.healthy,
+              icon: session.isDemo
+                  ? Icons.dataset_outlined
+                  : Icons.smart_toy_outlined,
+            ),
             StatusChip(label: session.formattedTimestamp, colour: AppTheme.charcoal),
           ],
         ),
@@ -578,3 +601,313 @@ class _FinalizeSection extends StatelessWidget {
     );
   }
 }
+
+/// QUALITY GRADE RECOMMENDATION — the prominent grading workflow component.
+///
+/// Shows the AI-assisted (or fixed-scenario) recommendation NEXT TO the final
+/// grade and lets the inspector CONFIRM or OVERRIDE it. The recommendation is
+/// never overwritten: an override records the inspector's own grade beside the
+/// original recommendation. ONION DETECT never certifies official grades.
+class _GradePanel extends StatelessWidget {
+  const _GradePanel({
+    required this.session,
+    required this.analysis,
+    required this.onConfirm,
+    required this.onOverride,
+    required this.onClear,
+  });
+
+  final InspectionSession session;
+  final AnalysisResult analysis;
+  final VoidCallback onConfirm;
+  final ValueChanged<String> onOverride;
+  final VoidCallback onClear;
+
+  static Color _gradeColour(String grade) {
+    if (grade == QualityGrade.gradeA) return AppTheme.healthy;
+    if (grade == QualityGrade.gradeB) return AppTheme.amberDark;
+    if (grade == QualityGrade.urs) return AppTheme.unhealthy;
+    return AppTheme.charcoal;
+  }
+
+  /// Picker dialog for the inspector's own grade (only the three supported
+  /// labels are ever offered).
+  Future<void> _pickOverride(BuildContext context) async {
+    final grade = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Choose the final grade'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Your grade is recorded next to the AI recommendation — the '
+              'recommendation itself is never overwritten.',
+              style: AppTypo.meta,
+            ),
+            const SizedBox(height: AppTheme.s12),
+            ...QualityGrade.all.map(
+              (option) => ListTile(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                leading: Icon(
+                  Icons.circle,
+                  size: 14,
+                  color: _gradeColour(option),
+                ),
+                title: Text(
+                  option,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                subtitle: option == QualityGrade.urs
+                    ? const Text(
+                        'Under Relaxed Specifications',
+                        style: AppTypo.meta,
+                      )
+                    : null,
+                onTap: () => Navigator.of(dialogContext).pop(option),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('CANCEL'),
+          ),
+        ],
+      ),
+    );
+    if (grade != null) onOverride(grade);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final recommended = session.recommendedGrade;
+    final finalGrade = session.finalGradeLabel;
+    final decision = session.gradeDecision;
+    final isDemo = session.isDemo;
+    final reviewed = session.reviewedCount;
+    final total = session.totalCount;
+
+    return PanelCard(
+      label: 'Quality grade recommendation',
+      borderColour:
+          session.gradeDecided ? AppTheme.secondaryGreen : AppTheme.amber,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Demo vs real provenance badges + grade decision state.
+          Wrap(
+            spacing: AppTheme.s8,
+            runSpacing: AppTheme.s8,
+            children: [
+              StatusChip(
+                label: isDemo ? 'Demo mode' : 'AI inference active',
+                colour: isDemo ? AppTheme.amberDark : AppTheme.healthy,
+                filled: true,
+                icon: isDemo
+                    ? Icons.dataset_outlined
+                    : Icons.smart_toy_outlined,
+              ),
+              if (isDemo && analysis.scenarioId.isNotEmpty)
+                StatusChip(
+                  label:
+                      'Scenario ${analysis.scenarioId} · ${analysis.scenarioTitle}',
+                  colour: AppTheme.secondaryGreen,
+                  icon: Icons.photo_outlined,
+                ),
+              StatusChip(
+                label: 'Decision: ${decision.label}',
+                colour: session.gradeDecided
+                    ? AppTheme.healthy
+                    : AppTheme.amberDark,
+                icon: session.gradeDecided
+                    ? Icons.how_to_reg_outlined
+                    : Icons.pending_outlined,
+              ),
+            ],
+          ),
+          const SizedBox(height: AppTheme.lg),
+
+          // Recommendation and final grade side by side — never merged.
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: _GradeBox(
+                  caption: 'AI RECOMMENDATION',
+                  grade: recommended ?? '—',
+                  colour: recommended == null
+                      ? AppTheme.secondaryText
+                      : _gradeColour(recommended),
+                  note: recommended == null
+                      ? 'No recommendation available.'
+                      : isDemo
+                          ? 'Fixed scenario recommendation.'
+                          : 'Heuristic: healthy ≥ 85% = A · ≥ 50% = B.',
+                ),
+              ),
+              const SizedBox(width: AppTheme.md),
+              Expanded(
+                child: _GradeBox(
+                  caption: 'FINAL GRADE (HUMAN)',
+                  grade: finalGrade,
+                  colour: finalGrade == 'PENDING'
+                      ? AppTheme.amberDark
+                      : _gradeColour(finalGrade),
+                  note: decision == GradeDecision.pending
+                      ? 'Awaiting inspector confirmation.'
+                      : decision == GradeDecision.confirmed
+                          ? 'Inspector confirmed the recommendation.'
+                          : 'Inspector overrode to ${session.humanGrade ?? finalGrade}.',
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppTheme.md),
+
+          // Honest provenance of the result above.
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(AppTheme.s12),
+            decoration: BoxDecoration(
+              color: isDemo ? AppTheme.pendingSurface : AppTheme.lightGreen,
+              borderRadius: BorderRadius.circular(AppTheme.cardRadius),
+              border: Border.all(
+                color: isDemo ? AppTheme.amber : AppTheme.border,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isDemo ? 'FIXED DEMONSTRATION SCENARIO' : 'REAL AI INFERENCE',
+                  style: AppTypo.label.copyWith(
+                    color:
+                        isDemo ? AppTheme.amberDark : AppTheme.secondaryGreen,
+                  ),
+                ),
+                const SizedBox(height: AppTheme.s4),
+                Text(
+                  isDemo
+                      ? 'No AI inference was executed for this result. '
+                          'Detection boxes and confidences were measured by '
+                          'the real YOLOv8n model once on the bundled '
+                          'photograph; health labels are fixed scenario values.'
+                      : 'Produced by the real AI pipeline (YOLOv8n detection '
+                          '· MobileNetV2 health classification). The grade is '
+                          'an AI-assisted recommendation, never an official '
+                          'certification.',
+                  style: AppTypo.meta,
+                ),
+                if (isDemo && analysis.scenarioNotes.isNotEmpty) ...[
+                  const SizedBox(height: AppTheme.s4),
+                  Text(
+                    analysis.scenarioNotes.join(' '),
+                    style: AppTypo.meta.copyWith(
+                      fontStyle: FontStyle.italic,
+                      color: AppTheme.secondaryGreen,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: AppTheme.md),
+
+          // Verification summary.
+          Text(
+            'HUMAN VERIFICATION: $reviewed of $total bulbs reviewed',
+            style: AppTypo.label,
+          ),
+          const SizedBox(height: AppTheme.s4),
+          ProgressLine(value: total == 0 ? 0 : reviewed / total),
+          const SizedBox(height: AppTheme.md),
+
+          // Confirm / override / clear actions.
+          Wrap(
+            spacing: AppTheme.s8,
+            runSpacing: AppTheme.s8,
+            children: [
+              FilledButton.icon(
+                onPressed: (recommended != null && !session.gradeDecided)
+                    ? onConfirm
+                    : null,
+                icon: const Icon(Icons.check_circle_outline, size: 16),
+                label: const Text('CONFIRM RECOMMENDATION'),
+              ),
+              OutlinedButton.icon(
+                onPressed:
+                    recommended == null ? null : () => _pickOverride(context),
+                icon: const Icon(Icons.edit_outlined, size: 16),
+                label: const Text('OVERRIDE'),
+              ),
+              if (session.gradeDecided)
+                TextButton.icon(
+                  onPressed: onClear,
+                  icon: const Icon(Icons.restart_alt, size: 16),
+                  label: const Text('CLEAR DECISION'),
+                ),
+            ],
+          ),
+          if (!session.gradeDecided) ...[
+            const SizedBox(height: AppTheme.s8),
+            const Text(
+              'Confirm or override the recommendation — the generated report '
+              'records the recommendation, the final grade and the decision.',
+              style: AppTypo.meta,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// One large grade display box (recommendation or final grade).
+class _GradeBox extends StatelessWidget {
+  const _GradeBox({
+    required this.caption,
+    required this.grade,
+    required this.colour,
+    required this.note,
+  });
+
+  final String caption;
+  final String grade;
+  final Color colour;
+  final String note;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppTheme.s16),
+      decoration: BoxDecoration(
+        color: AppTheme.white,
+        borderRadius: BorderRadius.circular(AppTheme.cardRadius),
+        border: Border.all(color: colour.withValues(alpha: 0.5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(caption, style: AppTypo.label),
+          const SizedBox(height: AppTheme.s4),
+          Text(
+            grade,
+            style: AppTypo.number.copyWith(color: colour, fontSize: 26),
+          ),
+          if (grade == QualityGrade.urs) ...[
+            const SizedBox(height: 2),
+            const Text('Under Relaxed Specifications', style: AppTypo.meta),
+          ],
+          const SizedBox(height: AppTheme.s4),
+          Text(note, style: AppTypo.meta),
+        ],
+      ),
+    );
+  }
+}
+

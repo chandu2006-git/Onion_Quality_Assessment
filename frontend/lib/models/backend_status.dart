@@ -39,18 +39,31 @@ class BackendStatus {
   factory BackendStatus.fromJson(Map<String, dynamic> json) {
     final detectorLoaded = json['detector_loaded'] as bool? ?? false;
     final classifierLoaded = json['classifier_loaded'] as bool? ?? false;
+    final detectorError = json['detector_error'] as String?;
+    final classifierError = json['classifier_error'] as String?;
+    final detectorFilePresent = json['detector_file_present'] as bool? ?? false;
+    final classifierFilePresent =
+        json['classifier_file_present'] as bool? ?? false;
     return BackendStatus(
       reachable: true,
       status: json['status'] as String? ?? 'degraded',
-      // Older backends without the explicit `ready` flag fall back to the
-      // legacy interpretation (both models reported loaded).
-      backendReady: json['ready'] as bool? ?? (detectorLoaded && classifierLoaded),
+      // Prefer the backend's explicit `ready` flag. When talking to a backend
+      // that predates it, derive readiness from the same evidence the backend
+      // itself uses: model files installed and no recorded load failure.
+      // The transient `*_loaded` residency flags are deliberately never used
+      // here — with lazy loading they are false at rest even while
+      // POST /api/analyze performs real inference successfully.
+      backendReady: json['ready'] as bool? ??
+          (detectorFilePresent &&
+              classifierFilePresent &&
+              detectorError == null &&
+              classifierError == null),
       detectorLoaded: detectorLoaded,
       classifierLoaded: classifierLoaded,
-      detectorError: json['detector_error'] as String?,
-      classifierError: json['classifier_error'] as String?,
-      detectorFilePresent: json['detector_file_present'] as bool? ?? false,
-      classifierFilePresent: json['classifier_file_present'] as bool? ?? false,
+      detectorError: detectorError,
+      classifierError: classifierError,
+      detectorFilePresent: detectorFilePresent,
+      classifierFilePresent: classifierFilePresent,
       version: json['version'] as String? ?? '',
     );
   }
@@ -87,7 +100,7 @@ class BackendStatus {
     if (configurationIncomplete) {
       final missing = <String>[
         if (!detectorFilePresent) 'onion_detector_v1.pt',
-        if (!classifierFilePresent) 'onion_health_mobilenetv2_best.keras',
+        if (!classifierFilePresent) 'onion_health_mobilenetv2_best.tflite',
       ];
       return 'The inspection model is not available. '
           'Missing model file(s): ${missing.join(', ')}. '

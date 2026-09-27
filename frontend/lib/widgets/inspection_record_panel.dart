@@ -36,10 +36,12 @@ class InspectionRecordPanel extends StatelessWidget {
         spacing: AppTheme.s8,
         runSpacing: AppTheme.s8,
         children: [
-          const StatusChip(
-            label: 'AI inference active',
-            colour: AppTheme.healthy,
-            icon: Icons.smart_toy_outlined,
+          StatusChip(
+            label: session.isDemo ? 'Demo mode' : 'AI inference active',
+            colour: session.isDemo ? AppTheme.amberDark : AppTheme.healthy,
+            icon: session.isDemo
+                ? Icons.dataset_outlined
+                : Icons.smart_toy_outlined,
           ),
           if (illustrative)
             const StatusChip(
@@ -70,6 +72,17 @@ class InspectionRecordPanel extends StatelessWidget {
               ),
               ('Sample file', session.sampleFileName ?? '—'),
             ],
+            if (session.isDemo)
+              [
+                (
+                  'Result source',
+                  (session.analysis?.scenarioId.isEmpty ?? true)
+                      ? 'Fixed demonstration scenario (no AI inference)'
+                      : 'Fixed demonstration scenario '
+                          '${session.analysis!.scenarioId} · '
+                          '${session.analysis!.scenarioTitle} (no AI inference)',
+                ),
+              ],
             [
               ('Detection model', detector),
               ('Health classification model', classifier),
@@ -94,9 +107,14 @@ class InspectionRecordPanel extends StatelessWidget {
                   ),
                 ),
               const Divider(height: AppTheme.md, color: AppTheme.border),
-              const Text(
-                'AI measurements are recorded separately from human '
-                    'verification; the final decision belongs to the inspector.',
+              Text(
+                session.isDemo
+                    ? 'This result is a fixed demonstration — no model was '
+                        'executed for it. Human verification and the grade '
+                        'decision still apply.'
+                    : 'AI measurements are recorded separately from human '
+                        'verification; the final decision belongs to the '
+                        'inspector.',
                 style: AppTypo.meta,
               ),
             ],

@@ -3,11 +3,12 @@ import 'dart:typed_data';
 
 import 'onion_observation.dart';
 
-/// Result of a real inference run performed by the FastAPI backend.
+/// Result of one inspection run.
 ///
-/// Every value here comes from the API response: the onion count, the health
-/// labels, the confidences and the annotated evidence image are never
-/// synthesised on the client.
+/// Real results are produced by the FastAPI backend (YOLOv8n → MobileNetV2);
+/// fixed demonstration results are built locally from the bundled demo dataset
+/// with `isDemo: true`. Every value shown to the user comes from one of those
+/// two sources — nothing is synthesised in between.
 class AnalysisResult {
   AnalysisResult({
     required this.totalOnions,
@@ -20,12 +21,26 @@ class AnalysisResult {
     required this.annotatedImageHeight,
     required this.annotatedImage,
     required this.modelInfo,
+    this.isDemo = false,
+    this.scenarioId = '',
+    this.scenarioTitle = '',
+    this.scenarioNotes = const <String>[],
   });
 
   final int totalOnions;
   final int healthyCount;
   final int unhealthyCount;
   final List<OnionObservation> observations;
+
+  /// True only for FIXED demonstration scenarios opened from the bundled
+  /// dataset. Real backend responses never set it, so real AI data and demo
+  /// data can never be mixed.
+  final bool isDemo;
+
+  /// Demo scenario metadata (`''` for real AI results).
+  final String scenarioId;
+  final String scenarioTitle;
+  final List<String> scenarioNotes;
 
   /// Original uploaded image dimensions (bounding boxes use these coordinates).
   final int imageWidth;
@@ -73,6 +88,14 @@ class AnalysisResult {
       annotatedImage: encoded.isEmpty ? Uint8List(0) : base64Decode(encoded),
       modelInfo: (json['model_info'] as Map<String, dynamic>? ?? <String, dynamic>{})
           .map((key, value) => MapEntry(key, value.toString())),
+      // Real backend responses never flag demo mode; only the fixed demo
+      // dataset builds results with `isDemo: true`.
+      isDemo: json['is_demo'] as bool? ?? false,
+      scenarioId: json['scenario_id'] as String? ?? '',
+      scenarioTitle: json['scenario_title'] as String? ?? '',
+      scenarioNotes: (json['scenario_notes'] as List<dynamic>? ?? <dynamic>[])
+          .map((note) => note.toString())
+          .toList(growable: false),
     );
   }
 }

@@ -91,3 +91,36 @@ class InspectionSummaryRequest(BaseModel):
     annotated_image: Optional[str] = Field(
         default=None, description="Base64 annotated evidence image captured during analysis."
     )
+
+    # ------------------------------------------------------------------ #
+    # Demo provenance and quality-grade workflow (optional).
+    #
+    # The frontend submits these alongside a normal inspection summary:
+    # `is_demo` marks a fixed demonstration scenario (no AI inference ran),
+    # and the grade fields carry the AI-assisted recommendation, the
+    # inspector's final grade and the decision taken between them.
+    # ------------------------------------------------------------------ #
+    is_demo: bool = Field(
+        default=False,
+        description="True when the result comes from a fixed demonstration scenario.",
+    )
+    demo_scenario: Optional[str] = Field(
+        default=None,
+        description="Title of the fixed demonstration scenario (demo results only).",
+    )
+    demo_observations: Optional[List[str]] = Field(
+        default=None,
+        description="Fixed scenario notes shown on the report (demo results only).",
+    )
+    recommended_grade: Optional[str] = Field(
+        default=None,
+        description="AI-assisted quality grade recommendation: GRADE A, GRADE B or URS.",
+    )
+    final_grade: Optional[str] = Field(
+        default=None,
+        description="Final grade after the human decision (PENDING until decided).",
+    )
+    grade_decision: Optional[str] = Field(
+        default=None,
+        description="Human decision on the recommendation: pending, confirmed or overridden.",
+    )

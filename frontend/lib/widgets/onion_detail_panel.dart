@@ -20,6 +20,7 @@ class OnionDetailPanel extends StatelessWidget {
     required this.onOverride,
     required this.onClearReview,
     this.sampleBytes,
+    this.isDemo = false,
   });
 
   final OnionObservation? observation;
@@ -29,6 +30,10 @@ class OnionDetailPanel extends StatelessWidget {
 
   /// Original sample, used to render the real cropped bulb thumbnail.
   final Uint8List? sampleBytes;
+
+  /// True when the result comes from a fixed demonstration scenario
+  /// (no model was executed for it).
+  final bool isDemo;
 
   @override
   Widget build(BuildContext context) {
@@ -53,10 +58,22 @@ class OnionDetailPanel extends StatelessWidget {
 
     return PanelCard(
       label: 'Onion detail',
-      trailing: StatusChip(
-        label: observation.verification.label,
-        colour: observation.verification.colour,
-        icon: observation.verification.icon,
+      trailing: Wrap(
+        spacing: AppTheme.s8,
+        runSpacing: AppTheme.s8,
+        children: [
+          StatusChip(
+            label: observation.verification.label,
+            colour: observation.verification.colour,
+            icon: observation.verification.icon,
+          ),
+          if (isDemo)
+            const StatusChip(
+              label: 'Demo mode',
+              colour: AppTheme.amberDark,
+              icon: Icons.dataset_outlined,
+            ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -90,6 +107,16 @@ class OnionDetailPanel extends StatelessWidget {
                         color: AppTheme.secondaryText,
                       ),
                     ),
+                    if (isDemo) ...[
+                      const SizedBox(height: AppTheme.s4),
+                      Text(
+                        'Stored fixed-scenario observation — no model was '
+                        'executed for this result.',
+                        style: AppTypo.meta.copyWith(
+                          color: AppTheme.amberDark,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),

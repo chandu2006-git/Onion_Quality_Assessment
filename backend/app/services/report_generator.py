@@ -136,17 +136,19 @@ def build_report(payload: InspectionSummaryRequest) -> bytes:
 
     story: List = []
     story.extend(_masthead(styles))
+    if payload.is_demo:
+        story.extend(_demo_banner(payload, styles))
     story.extend(_inspection_information(payload, styles))
     story.extend(_summary(payload, styles))
     story.extend(_observation_table(payload, styles))
     story.extend(_evidence(payload, styles))
     story.extend(_qr_section(payload, styles))
-    story.extend(_models_section(styles))
+    story.extend(_models_section(styles, payload))
     story.extend(_methodology_section(styles))
     story.extend(_verification_section(styles))
     story.append(Spacer(1, 8))
     story.extend(_limitations_section(styles))
-    story.extend(_disclaimer(styles))
+    story.extend(_disclaimer(payload, styles))
 
     document.build(story, onFirstPage=_page_furniture, onLaterPages=_page_furniture)
     return buffer.getvalue()
@@ -290,7 +292,85 @@ def _summary(payload: InspectionSummaryRequest, styles) -> List:
             styles["small"],
         )
     )
+    if payload.recommended_grade or payload.final_grade:
+        story.append(Spacer(1, 6))
+        story.extend(_grade_block(payload, styles))
     return story
+
+
+def _demo_banner(payload: InspectionSummaryRequest, styles) -> List:
+    """Prominent DEMO MODE banner — a fixed scenario is never passed off as AI output."""
+    lines = [
+        Paragraph(
+            "<b>DEMO MODE \u2014 FIXED DEMONSTRATION SCENARIO.</b> No AI model was executed "
+            "for this result. Detection boxes and confidences were produced by the real "
+            "YOLOv8n model once on the bundled sample photograph; health labels are fixed "
+            "scenario values. Human verification and the quality-grade decision still apply.",
+            styles["body"],
+        )
+    ]
+    if payload.demo_scenario:
+        lines.append(Spacer(1, 3))
+        lines.append(Paragraph(f"Scenario: {payload.demo_scenario}", styles["label"]))
+    for note in payload.demo_observations or []:
+        lines.append(Spacer(1, 2))
+        lines.append(Paragraph(f"\u2022 {note}", styles["small"]))
+    table = Table([[lines]], colWidths=[168 * mm])
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#FBF2E0")),
+                ("BOX", (0, 0), (-1, -1), 1.1, AMBER),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 7),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+            ]
+        )
+    )
+    return [Spacer(1, 4), table]
+
+
+def _grade_block(payload: InspectionSummaryRequest, styles) -> List:
+    """QUALITY GRADE: recommendation vs. final human grade — side by side, never merged."""
+    recommended = payload.recommended_grade or "PENDING"
+    final = payload.final_grade or "PENDING"
+    decision = (payload.grade_decision or "pending").replace("_", " ").title()
+    rows = [
+        [
+            Paragraph("QUALITY GRADE RECOMMENDATION", styles["label"]),
+            Paragraph("FINAL GRADE (HUMAN)", styles["label"]),
+            Paragraph("GRADE DECISION", styles["label"]),
+        ],
+        [
+            Paragraph(str(recommended), styles["value"]),
+            Paragraph(str(final), styles["value"]),
+            Paragraph(decision, styles["value"]),
+        ],
+    ]
+    table = Table(rows, colWidths=[64 * mm, 56 * mm, 48 * mm])
+    table.setStyle(
+        TableStyle(
+            [
+                ("GRID", (0, 0), (-1, -1), 0.5, BORDER),
+                ("BACKGROUND", (0, 0), (-1, 0), OFF_WHITE),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]
+        )
+    )
+    return [
+        table,
+        Spacer(1, 4),
+        Paragraph(
+            "GRADE A, GRADE B and URS (Under Relaxed Specifications) are the three supported "
+            "AI-assisted recommendation labels. The recommendation is generated first and is "
+            "never overwritten: the inspector confirms it or records their own final grade "
+            "next to it. This is not an official grade certification.",
+            styles["small"],
+        ),
+    ]
 
 
 def _observation_table(payload: InspectionSummaryRequest, styles) -> List:
@@ -378,8 +458,11 @@ def _evidence(payload: InspectionSummaryRequest, styles) -> List:
     story.append(Spacer(1, 4))
     story.append(
         Paragraph(
-            "Annotated sample image produced during AI analysis. Bounding boxes and bulb numbers "
-            "correspond to the observation table above.",
+            "Stored demonstration evidence (DEMO MODE). Bounding boxes and bulb numbers "
+            "correspond to the observation table above."
+            if payload.is_demo
+            else "Annotated sample image produced during AI analysis. Bounding boxes and bulb "
+            "numbers correspond to the observation table above.",
             styles["small"],
         )
     )
@@ -466,7 +549,7 @@ def _qr_section(payload: InspectionSummaryRequest, styles) -> List:
     return story
 
 
-def _models_section(styles) -> List:
+def _models_section(styles, payload: Optional[InspectionSummaryRequest] = None) -> List:
     story = _section_title("6. Models Used", styles)
     rows = [
         [
@@ -495,6 +578,15 @@ def _models_section(styles) -> List:
         )
     )
     story.append(table)
+    if payload is not None and payload.is_demo:
+        story.append(Spacer(1, 4))
+        story.append(
+            Paragraph(
+                "The models listed above are the reference AI pipeline. They were NOT executed "
+                "for this fixed demonstration result.",
+                styles["small"],
+            )
+        )
     return story
 
 
@@ -524,8 +616,8 @@ def _limitations_section(styles) -> List:
     return story
 
 
-def _disclaimer(styles) -> List:
-    return _section_title("10. Disclaimer", styles) + [
+def _disclaimer(payload: InspectionSummaryRequest, styles) -> List:
+    story = _section_title("10. Disclaimer", styles) + [
         Paragraph(
             "AI observations are subject to human verification and should not be treated as a substitute "
             "for expert or regulatory inspection.",
@@ -538,6 +630,18 @@ def _disclaimer(styles) -> List:
             styles["body"],
         ),
     ]
+    if payload.is_demo:
+        story.append(Spacer(1, 4))
+        story.append(
+            Paragraph(
+                "DEMO MODE: this report was generated from a fixed demonstration scenario. "
+                "No AI inference was executed for this result; the evidence image and per-bulb "
+                "values are stored demonstration data and must not be treated as a live "
+                "inspection outcome.",
+                styles["body"],
+            )
+        )
+    return story
 
 
 

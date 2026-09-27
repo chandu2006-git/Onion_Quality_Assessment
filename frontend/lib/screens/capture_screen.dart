@@ -32,6 +32,20 @@ class CaptureScreen extends ConsumerStatefulWidget {
 class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   String? _fileError;
 
+  /// Anchors the "TRY DEMO SAMPLES" recovery actions to the demo panel.
+  final GlobalKey _demoPanelKey = GlobalKey();
+
+  void _scrollToDemo() {
+    final context = _demoPanelKey.currentContext;
+    if (context == null) return;
+    Scrollable.ensureVisible(
+      context,
+      duration: const Duration(milliseconds: 360),
+      curve: Curves.easeOut,
+      alignment: 0.1,
+    );
+  }
+
   Future<void> _onFileSelected(XFile file) async {
     try {
       final bytes = await file.readAsBytes();
@@ -93,20 +107,38 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                 session: session,
                 analysing: state.analysisRunning,
                 aiActive: backend.value?.ready ?? false,
+                serviceKnown: backend.value != null,
               ),
               const SizedBox(height: AppTheme.lg),
               backend.when(
                 loading: () => const LinearProgressIndicator(minHeight: 2),
-                error: (error, _) => InfoBanner(
-                  title: 'Service status',
-                  severity: BannerSeverity.error,
-                  message: BackendStatus.unreachable().summary,
-                  action: OutlinedButton(
-                    onPressed: () => ref.invalidate(backendStatusProvider),
-                    child: const Text('RECHECK SERVICE'),
+                error: (_, __) => InfoBanner(
+                  title: 'AI service temporarily unavailable',
+                  severity: BannerSeverity.attention,
+                  message: 'You can continue the demonstration using our '
+                      'prepared inspection samples — they open instantly and '
+                      'do not require the service.',
+                  action: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      FilledButton.icon(
+                        onPressed: _scrollToDemo,
+                        icon: const Icon(Icons.auto_awesome_outlined, size: 16),
+                        label: const Text('TRY DEMO SAMPLES'),
+                      ),
+                      const SizedBox(width: AppTheme.s8),
+                      OutlinedButton(
+                        onPressed: () => ref.invalidate(backendStatusProvider),
+                        child: const Text('RECHECK SERVICE'),
+                      ),
+                    ],
                   ),
                 ),
-                data: (status) => _ServiceStatusBanner(status: status),
+                data: (status) => _ServiceStatusBanner(
+                  status: status,
+                  onTryDemo: _scrollToDemo,
+                  onRecheck: () => ref.invalidate(backendStatusProvider),
+                ),
               ),
               const SizedBox(height: AppTheme.lg),
               LayoutBuilder(
@@ -118,12 +150,14 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                     onError: (message) => setState(() => _fileError = message),
                     session: session,
                     fileError: _fileError,
+                    demoPanelKey: _demoPanelKey,
                   );
                   final actionColumn = _ActionColumn(
                     state: state,
-                    canAnalyze: _canAnalyze(state, backend),
+                    canAnalyze: _canAnalyze(state),
                     onAnalyze: _analyze,
                     onClear: () => ref.read(inspectionProvider.notifier).clearSample(),
+                    onTryDemo: _scrollToDemo,
                   );
                   if (wide) {
                     return Row(
@@ -151,11 +185,13 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     );
   }
 
-  bool _canAnalyze(InspectionState state, AsyncValue<BackendStatus> backend) {
+  bool _canAnalyze(InspectionState state) {
     if (state.session?.sampleBytes == null) return false;
     if (state.analysisRunning) return false;
-    final status = backend.value;
-    return status == null ? true : status.ready;
+    // Always attempt real inference for a user-uploaded image: readiness
+    // banners inform the user, and a genuine failure lands on the graceful
+    // recovery card (never a dead end). Model residency is never a gate.
+    return true;
   }
 }
 
@@ -166,6 +202,7 @@ class _UploadColumn extends StatelessWidget {
     required this.onError,
     required this.session,
     required this.fileError,
+    required this.demoPanelKey,
   });
 
   final bool enabled;
@@ -173,6 +210,9 @@ class _UploadColumn extends StatelessWidget {
   final ValueChanged<String> onError;
   final InspectionSession session;
   final String? fileError;
+
+  /// GlobalKey of the demo panel, used by the recovery actions to scroll to it.
+  final GlobalKey demoPanelKey;
 
   @override
   Widget build(BuildContext context) {
@@ -194,8 +234,9 @@ class _UploadColumn extends StatelessWidget {
           ),
         ],
         const SizedBox(height: AppTheme.md),
-        // DEMO IMAGES — one-click samples feeding the existing pipeline.
-        const DemoSamplesPanel(),
+        // DEMO IMAGES — fixed scenarios (instant, offline) first; the
+        // secondary section keeps the real-AI quick check on bundled photos.
+        DemoSamplesPanel(key: demoPanelKey),
         const SizedBox(height: AppTheme.md),
         if (bytes != null && bytes.isNotEmpty)
           _SamplePreview(session: session)
@@ -252,12 +293,16 @@ class _ActionColumn extends StatelessWidget {
     required this.canAnalyze,
     required this.onAnalyze,
     required this.onClear,
+    required this.onTryDemo,
   });
 
   final InspectionState state;
   final bool canAnalyze;
   final VoidCallback onAnalyze;
   final VoidCallback onClear;
+
+  /// Scrolls to the prepared demo samples (recovery path after a failure).
+  final VoidCallback onTryDemo;
 
   @override
   Widget build(BuildContext context) {
@@ -311,13 +356,18 @@ class _ActionColumn extends StatelessWidget {
         if (state.analysisError != null) ...[
           const SizedBox(height: AppTheme.md),
           InfoBanner(
-            title: 'AI analysis unavailable',
-            severity: BannerSeverity.error,
-            message: state.analysisError!,
+            title: 'AI inspection temporarily unavailable',
+            severity: BannerSeverity.attention,
+            message: 'Try a prepared demonstration sample to continue the '
+                'inspection workflow.',
             details: const [
-              'Please check the inspection service and try again.',
               'No result is shown unless the real models completed the analysis.',
             ],
+            action: FilledButton.icon(
+              onPressed: onTryDemo,
+              icon: const Icon(Icons.auto_awesome_outlined, size: 16),
+              label: const Text('TRY DEMO SAMPLES'),
+            ),
           ),
         ],
         const SizedBox(height: AppTheme.md),
@@ -335,11 +385,15 @@ class _CaptureHeader extends StatelessWidget {
     required this.session,
     required this.analysing,
     required this.aiActive,
+    required this.serviceKnown,
   });
 
   final InspectionSession session;
   final bool analysing;
   final bool aiActive;
+
+  /// Whether the backend status probe has returned at all (null = probing).
+  final bool serviceKnown;
 
   @override
   Widget build(BuildContext context) {
@@ -388,6 +442,14 @@ class _CaptureHeader extends StatelessWidget {
                 label: 'AI inference active',
                 colour: AppTheme.healthy,
                 icon: Icons.smart_toy_outlined,
+              )
+            else
+              StatusChip(
+                label: serviceKnown
+                    ? 'AI service offline — demos available'
+                    : 'AI service check running',
+                colour: AppTheme.amberDark,
+                icon: Icons.cloud_off_outlined,
               ),
           ],
         ),
@@ -398,11 +460,26 @@ class _CaptureHeader extends StatelessWidget {
   }
 }
 
-/// Reports the live readiness of the FastAPI service and the trained models.
+/// Reports the live readiness of the FastAPI service — always with a next
+/// action, and never as a technical failure screen.
+///
+/// Service REACHABILITY is distinguished from model RESIDENCY: an unreachable
+/// or not-ready service becomes an invitation to the prepared demo samples
+/// (which need no service at all), never a dead end.
 class _ServiceStatusBanner extends StatelessWidget {
-  const _ServiceStatusBanner({required this.status});
+  const _ServiceStatusBanner({
+    required this.status,
+    required this.onTryDemo,
+    required this.onRecheck,
+  });
 
   final BackendStatus status;
+
+  /// Scrolls to the prepared demo samples (works with no service at all).
+  final VoidCallback onTryDemo;
+
+  /// Re-runs the backend status probe.
+  final VoidCallback onRecheck;
 
   @override
   Widget build(BuildContext context) {
@@ -410,18 +487,36 @@ class _ServiceStatusBanner extends StatelessWidget {
       return const InfoBanner(
         title: 'Inspection service online',
         severity: BannerSeverity.success,
-        message: 'Detection model and health classification model reported as ready '
-            'by the backend. Models load on demand for each analysis.',
+        message: 'Real AI inference is available for uploaded images. '
+            'Prepared demo samples work with or without the service.',
       );
     }
     return InfoBanner(
-      title: status.reachable ? 'Model configuration required' : 'Service unavailable',
-      severity: BannerSeverity.error,
-      message: status.summary,
+      title: 'AI service temporarily unavailable',
+      severity: BannerSeverity.attention,
+      message: 'You can continue the demonstration using our prepared '
+          'inspection samples — they open instantly and do not require '
+          'the service.',
       details: const [
-        'Inference cannot run until the service reports ready (model files installed, no load failures).',
-        'No placeholder or substitute results are produced by this application.',
+        'Demo samples still provide detection evidence, health labels, a '
+            'grade recommendation, human verification and a PDF report.',
       ],
+      action: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FilledButton.icon(
+            onPressed: onTryDemo,
+            icon: const Icon(Icons.auto_awesome_outlined, size: 16),
+            label: const Text('TRY DEMO SAMPLES'),
+          ),
+          const SizedBox(width: AppTheme.s8),
+          OutlinedButton.icon(
+            onPressed: onRecheck,
+            icon: const Icon(Icons.refresh, size: 16),
+            label: const Text('RECHECK SERVICE'),
+          ),
+        ],
+      ),
     );
   }
 }

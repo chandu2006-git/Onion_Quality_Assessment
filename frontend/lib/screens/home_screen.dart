@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../config/app_config.dart';
+import '../config/grades.dart';
 import '../theme/app_text_styles.dart';
 import '../theme/app_theme.dart';
 import '../theme/app_theme_data.dart';
@@ -24,6 +25,7 @@ class HomeScreen extends StatelessWidget {
             _OperationalSnapshotSection(),
             _WhySection(),
             _HowItWorksSection(),
+            _SupportedGradesSection(),
             _StandardsContextSection(),
             _WorkflowSection(),
             AppFooter(),
@@ -770,6 +772,106 @@ class _HowItWorksSection extends StatelessWidget {
                     ),
                   )
                   .toList(growable: false),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// SUPPORTED QUALITY GRADES — makes the three-label grading workflow
+/// (GRADE A / GRADE B / URS) prominent on the landing page.
+///
+/// Every inspection — real AI inference or a fixed demonstration scenario —
+/// ends in exactly one of these labels, always AI-recommended first and
+/// human-verified afterwards. ONION DETECT never certifies official grades.
+class _SupportedGradesSection extends StatelessWidget {
+  const _SupportedGradesSection();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      color: AppTheme.primary,
+      padding: const EdgeInsets.symmetric(vertical: AppTheme.xxl),
+      child: ContentContainer(
+        maxWidth: AppTheme.maxContentWidth,
+        padding: EdgeInsets.symmetric(
+          horizontal: MediaQuery.sizeOf(context).width < 700
+              ? AppTheme.gutter
+              : AppTheme.s48,
+          vertical: AppTheme.s8,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SectionHeading(
+              onDark: true,
+              title: 'Supported quality grades',
+              subtitle: 'Every inspection ends in one of exactly three labels — '
+                  'the AI recommends, a human inspector confirms or overrides.',
+            ),
+            const SizedBox(height: AppTheme.lg),
+            const ResponsiveCardGrid(
+              minCardWidth: 240,
+              maxColumns: 3,
+              children: [
+                MetricCard(
+                  onDark: true,
+                  value: QualityGrade.gradeA,
+                  title: 'GRADE A',
+                  description:
+                      'High share of healthy bulbs (recommended at ≥ 85% healthy).',
+                  icon: Icons.workspace_premium_outlined,
+                ),
+                MetricCard(
+                  onDark: true,
+                  value: QualityGrade.gradeB,
+                  title: 'GRADE B',
+                  description:
+                      'Marketable with sorting (recommended at 50–84% healthy).',
+                  icon: Icons.inventory_2_outlined,
+                ),
+                MetricCard(
+                  onDark: true,
+                  value: QualityGrade.urs,
+                  title: 'URS · UNDER RELAXED SPECIFICATIONS',
+                  description:
+                      'Defects dominate (recommended below 50% healthy).',
+                  icon: Icons.rule_outlined,
+                ),
+              ],
+            ),
+            const SizedBox(height: AppTheme.lg),
+            Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppTheme.md,
+                vertical: AppTheme.s12,
+              ),
+              decoration: BoxDecoration(
+                color: AppTheme.white.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(AppTheme.buttonRadius),
+                border:
+                    Border.all(color: AppTheme.amber.withValues(alpha: 0.7)),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.verified_user_outlined,
+                      size: 17, color: AppTheme.amber),
+                  SizedBox(width: AppTheme.s8),
+                  Flexible(
+                    child: Text(
+                      'AI-assisted recommendation • Human verification required',
+                      style: TextStyle(
+                        color: AppTheme.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),

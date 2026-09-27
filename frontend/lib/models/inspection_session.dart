@@ -3,8 +3,28 @@ import 'dart:typed_data';
 
 import '../core/api_exception.dart';
 import '../core/inspection_id.dart';
+import '../config/grades.dart';
 import 'analysis_result.dart';
 import 'onion_observation.dart';
+
+/// Inspector decision on the grade recommendation.
+///
+/// The recommended grade is never overwritten: a confirmation records that
+/// the inspector accepted it, an override records the inspector's own final
+/// grade NEXT to the original recommendation.
+enum GradeDecision {
+  pending('pending', 'Pending'),
+  confirmed('confirmed', 'Confirmed'),
+  overridden('overridden', 'Overridden');
+
+  const GradeDecision(this.wireValue, this.label);
+
+  /// Value accepted by the report contract.
+  final String wireValue;
+
+  /// Short display label.
+  final String label;
+}
 
 /// Everything recorded during one inspection session.
 ///
@@ -33,6 +53,65 @@ class InspectionSession {
   int? sampleSizeBytes;
 
   AnalysisResult? analysis;
+
+  // --------------------------------------------------------------------- //
+  // Quality grade workflow: recommendation → human decision → final grade
+  // --------------------------------------------------------------------- //
+
+  /// AI-assisted (or fixed-demo) grade recommendation. Never overwritten.
+  String? recommendedGrade;
+
+  /// Inspector decision state of the grade recommendation.
+  GradeDecision gradeDecision = GradeDecision.pending;
+
+  /// Inspector's own grade when the recommendation was overridden.
+  String? humanGrade;
+
+  /// True when the current result is a FIXED demonstration scenario.
+  bool get isDemo => analysis?.isDemo ?? false;
+
+  /// Final grade shown after the inspector decides.
+  /// `PENDING` until the recommendation is confirmed or overridden.
+  String get finalGradeLabel {
+    switch (gradeDecision) {
+      case GradeDecision.confirmed:
+        return recommendedGrade ?? 'PENDING';
+      case GradeDecision.overridden:
+        return humanGrade ?? recommendedGrade ?? 'PENDING';
+      case GradeDecision.pending:
+        return 'PENDING';
+    }
+  }
+
+  bool get gradeDecided => gradeDecision != GradeDecision.pending;
+
+  /// Accept the recommendation. The original value stays untouched.
+  void confirmGrade() {
+    if (recommendedGrade == null) return;
+    gradeDecision = GradeDecision.confirmed;
+    humanGrade = null;
+  }
+
+  /// Record an inspector grade that differs from the recommendation.
+  void overrideGrade(String grade) {
+    if (recommendedGrade == null || !QualityGrade.isValid(grade)) return;
+    gradeDecision = GradeDecision.overridden;
+    humanGrade = grade;
+  }
+
+  /// Return the grade decision to PENDING (recommendation preserved).
+  void clearGradeDecision() {
+    gradeDecision = GradeDecision.pending;
+    humanGrade = null;
+  }
+
+  /// Clears any grade state (used when a new sample or analysis replaces the
+  /// previous one).
+  void resetGrade() {
+    recommendedGrade = null;
+    gradeDecision = GradeDecision.pending;
+    humanGrade = null;
+  }
 
   List<OnionObservation> get observations =>
       analysis?.observations ?? const <OnionObservation>[];
@@ -110,6 +189,14 @@ class InspectionSession {
       'detections': observations.map((o) => o.toDetectionJson()).toList(),
       'verifications': observations.map((o) => o.toVerificationJson()).toList(),
       'annotated_image': annotatedImageBase64,
+      // Quality grade + demo transparency (optional for the backend; real
+      // reports are never marked as demo and vice versa).
+      'is_demo': analysis!.isDemo,
+      'recommended_grade': recommendedGrade,
+      'final_grade': finalGradeLabel,
+      'grade_decision': gradeDecision.wireValue,
+      'demo_scenario': analysis!.isDemo ? analysis!.scenarioTitle : null,
+      'demo_observations': analysis!.isDemo ? analysis!.scenarioNotes : null,
     };
   }
 }
