@@ -21,6 +21,7 @@ from PIL import Image
 from app.config import settings
 from app.services.classifier import HEALTHY, OnionHealthClassifier
 from app.services.detector import OnionDetector
+from app.services.diagnostics import inference
 from app.services.model_registry import inference_lock
 from app.utils.image_utils import (
     crop_bbox,
@@ -44,6 +45,26 @@ class InspectionPipeline:
         self.classifier = classifier
 
     def run(self, pil_image: Image.Image, inspection_id: Optional[str] = None) -> Dict:
+        """Run the pipeline, recording the real outcome for the health endpoint.
+
+        The recorded result is the genuine one: a failure is stored with its
+        actual message (never swallowed) and a success is only recorded once all
+        detections and classifications completed.
+        """
+        started = inference.started()
+        try:
+            result = self._run(pil_image, inspection_id)
+        except Exception as exc:
+            inference.failed(message=f"{type(exc).__name__}: {exc}")
+            raise
+        inference.succeeded(
+            started=started,
+            bulbs=int(result.get("total_onions", 0)),
+            inspection_id=str(result.get("inspection_id", "")),
+        )
+        return result
+
+    def _run(self, pil_image: Image.Image, inspection_id: Optional[str] = None) -> Dict:
         original = pil_to_cv2(pil_image)
         height, width = original.shape[:2]
 

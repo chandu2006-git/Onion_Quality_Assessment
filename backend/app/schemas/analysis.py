@@ -72,6 +72,36 @@ class OnionVerification(BaseModel):
     human_decision: Optional[HealthLabel] = None
     verification_note: Optional[str] = None
 
+    # ------------------------------------------------------------------ #
+    # Per-bulb QUALITY GRADE record (optional, produced by the frontend's
+    # standards-informed grading engine). The AI recommendation is kept
+    # separate from the inspector's own grade, so the report can print both.
+    # ------------------------------------------------------------------ #
+    quality_observation: Optional[str] = Field(
+        default=None,
+        description="Visible-quality observation used for the recommendation.",
+    )
+    recommended_grade: Optional[str] = Field(
+        default=None,
+        description="AI recommendation for this bulb: GRADE A, GRADE B, URS or REQUIRES HUMAN REVIEW.",
+    )
+    human_grade: Optional[str] = Field(
+        default=None,
+        description="Inspector's own grade when the recommendation was overridden.",
+    )
+    final_grade: Optional[str] = Field(
+        default=None,
+        description="Final recorded grade for this bulb (recommendation when confirmed).",
+    )
+    grade_decision: Optional[str] = Field(
+        default=None,
+        description="Human decision on the recommendation: pending, confirmed or overridden.",
+    )
+    grade_reason: Optional[str] = Field(
+        default=None,
+        description="Auditable rule trace behind the recommendation.",
+    )
+
 
 class InspectionSummaryRequest(BaseModel):
     """Payload used to build the PDF inspection report."""

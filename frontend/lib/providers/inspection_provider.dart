@@ -341,6 +341,47 @@ class InspectionNotifier extends StateNotifier<InspectionState> {
     _emitVerificationChange();
   }
 
+  // -------------------------------------------------------------------- //
+  // PER-BULB GRADE decisions (separate from the health verification)
+  // -------------------------------------------------------------------- //
+
+  /// Accept the recommended GRADE for one bulb.
+  void confirmBulbGrade(int id) {
+    final observation = state.session?.observationById(id);
+    if (observation == null) return;
+    observation.confirmGrade();
+    _emitVerificationChange();
+  }
+
+  /// Record the inspector's own grade for one bulb (recommendation kept).
+  void overrideBulbGrade(int id, String grade) {
+    final observation = state.session?.observationById(id);
+    if (observation == null) return;
+    observation.overrideGradeWith(grade);
+    _emitVerificationChange();
+  }
+
+  /// Return one bulb's grade decision to PENDING.
+  void clearBulbGradeDecision(int id) {
+    final observation = state.session?.observationById(id);
+    if (observation == null) return;
+    observation.clearGradeDecision();
+    _emitVerificationChange();
+  }
+
+  /// Accept every grade recommendation that is still pending.
+  ///
+  /// A confidence aid for the inspector: each bulb keeps its own record, so an
+  /// individual bulb can still be overridden afterwards.
+  void confirmAllPendingGrades() {
+    final session = state.session;
+    if (session == null) return;
+    for (final observation in session.observations) {
+      if (!observation.gradeDecided) observation.confirmGrade();
+    }
+    _emitVerificationChange();
+  }
+
   void setVerificationNote(int id, String note) {
     final observation = state.session?.observationById(id);
     if (observation == null) return;

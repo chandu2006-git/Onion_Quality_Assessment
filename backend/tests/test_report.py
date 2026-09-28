@@ -214,3 +214,127 @@ def test_report_endpoint_accepts_demo_payload(client):
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/pdf"
     assert response.content.startswith(b"%PDF")
+
+
+# --------------------------------------------------------------------------- #
+# Per-bulb quality grading in the PDF
+# --------------------------------------------------------------------------- #
+def _graded_payload(
+    *,
+    grades=("GRADE A", "GRADE A", "URS"),
+    decisions=("confirmed", "confirmed", "confirmed"),
+    is_demo: bool = False,
+) -> InspectionSummaryRequest:
+    """Two detections plus a third, each with an explicit per-bulb grade record."""
+    data = _payload().model_dump()
+    base = DETECTIONS[0]
+    detections = []
+    verifications = []
+    statuses = ("confirmed_ai", "confirmed_ai", "confirmed_ai")
+    for index, grade in enumerate(grades):
+        detection = dict(base)
+        detection["id"] = index + 1
+        detection["bbox"] = {
+            "x1": 10 + index * 30,
+            "y1": 12 + index * 30,
+            "x2": 60 + index * 30,
+            "y2": 70 + index * 30,
+        }
+        detections.append(detection)
+        verifications.append(
+            {
+                "id": index + 1,
+                "ai_health": detection["health"],
+                "health_confidence": detection["health_confidence"],
+                "detection_confidence": detection["detection_confidence"],
+                "verification_status": statuses[index],
+                "human_decision": detection["health"],
+                "quality_observation": f"Observation for bulb {index + 1}.",
+                "recommended_grade": grade,
+                "human_grade": grade if decisions[index] == "overridden" else None,
+                "final_grade": grade if decisions[index] != "pending" else None,
+                "grade_decision": decisions[index],
+            }
+        )
+    data.update(
+        detections=detections,
+        verifications=verifications,
+        ai_healthy=len(detections),
+        ai_unhealthy=0,
+        verified_healthy=len(detections),
+        verified_unhealthy=0,
+        is_demo=is_demo,
+        annotated_image=None,
+    )
+    return InspectionSummaryRequest(**data)
+
+
+def test_pdf_contains_bulb_wise_table_and_grade_sections():
+    data = _graded_payload().model_dump()
+    data.update(recommended_grade="GRADE B", final_grade="GRADE B", grade_decision="confirmed")
+    text = _pdf_text(build_report(InspectionSummaryRequest(**data)))
+    # Bulb-wise quality table.
+    assert "BULB-WISE QUALITY ASSESSMENT" in text
+    assert "QUALITY OBSERVATION" in text
+    assert "AI GRADE" in text
+    assert "FINAL GRADE" in text
+    assert "Observation for bulb 1." in text
+    # Distribution + final verification blocks.
+    assert "QUALITY GRADE DISTRIBUTION" in text
+    assert "RECOMMENDED LOT STATUS" in text
+    assert "FINAL VERIFICATION" in text
+    assert "GRADE A" in text and "GRADE B" in text and "URS" in text
+    # Provenance for a real AI report, and the standards wording.
+    assert "REAL AI INSPECTION" in text
+    assert "STANDARDS-INFORMED QUALITY RECOMMENDATION" in text
+    assert "not an official AGMARK" in text
+    assert "DEMO MODE" not in text
+
+
+def test_pdf_lot_status_follows_the_configured_policy():
+    # 85%+ Grade A and no URS → GRADE A lot.
+    data = _graded_payload(grades=("GRADE A", "GRADE A", "GRADE A")).model_dump()
+    text = _pdf_text(build_report(InspectionSummaryRequest(**data)))
+    assert "RECOMMENDED LOT STATUS: GRADE A" in text
+
+    # Mixed A/B without URS → GRADE B lot (A share below 85%).
+    data = _graded_payload(grades=("GRADE A", "GRADE B", "GRADE B")).model_dump()
+    text = _pdf_text(build_report(InspectionSummaryRequest(**data)))
+    assert "RECOMMENDED LOT STATUS: GRADE B" in text
+
+    # URS dominates → URS lot.
+    data = _graded_payload(grades=("URS", "URS", "GRADE B")).model_dump()
+    text = _pdf_text(build_report(InspectionSummaryRequest(**data)))
+    assert "RECOMMENDED LOT STATUS: URS" in text
+
+
+def test_pending_grade_never_produces_a_lot_grade():
+    data = _graded_payload(
+        grades=("GRADE A", "GRADE A", "GRADE A"),
+        decisions=("confirmed", "confirmed", "pending"),
+    ).model_dump()
+    text = _pdf_text(build_report(InspectionSummaryRequest(**data)))
+    assert "REQUIRES HUMAN REVIEW" in text
+    assert "HUMAN REVIEW REQUIRED FOR FINAL LOT DECISION" in text
+    assert "PENDING" in text
+
+
+def test_pdf_labels_demo_reports_and_never_as_model_output():
+    data = _graded_payload(
+        grades=("GRADE A", "GRADE B", "URS"),
+        is_demo=True,
+    ).model_dump()
+    data.update(
+        demo_scenario="01 - Healthy majority",
+        demo_observations=["7 bulbs detected."],
+        recommended_grade="GRADE B",
+        final_grade="GRADE B",
+        grade_decision="confirmed",
+    )
+    text = _pdf_text(build_report(InspectionSummaryRequest(**data)))
+    assert "DEMONSTRATION REPORT" in text
+    assert "DEMO MODE" in text
+    assert "FIXED DEMO SCENARIO" in text
+    assert "MODELS NOT EXECUTED" in text
+    # A demo report is never labelled as real inference.
+    assert "REAL AI INSPECTION" not in text

@@ -87,3 +87,71 @@ def test_models_endpoint_exposes_technical_detail(client):
     assert payload["classifier"]["runtime"] == "LiteRT"
     assert payload["classifier"]["file_name"] == "onion_health_mobilenetv2.tflite"
     assert payload["max_upload_size_mb"] == settings.MAX_UPLOAD_SIZE_MB
+
+
+# --------------------------------------------------------------------------- #
+# Honest, granular state: AVAILABILITY vs in-memory RESIDENCY vs INFERENCE
+# --------------------------------------------------------------------------- #
+def test_health_distinguishes_service_files_residency_and_inference(client):
+    """loaded=false at rest is documented lazy loading, never a failure."""
+    payload = client.get("/api/health").json()
+    assert payload["service_available"] is True
+    assert payload["lazy_loading"] is True
+    assert "loaded=false at rest" in payload["lazy_loading_note"]
+    assert isinstance(payload["analysis_available"], bool)
+    # Never claim a load result that has not happened.
+    if payload["detector_load_attempts"] == 0:
+        assert payload["detector_last_load_ok"] is None
+        assert payload["detector_last_load_ms"] is None
+    if payload["classifier_load_attempts"] == 0:
+        assert payload["classifier_last_load_ok"] is None
+    # Inference diagnostics exist and are consistent.
+    assert payload["inference_successes"] >= 0
+    assert payload["inference_failures"] >= 0
+    if payload["last_inference_ok"] is None:
+        assert payload["last_inference_ms"] is None
+
+
+def test_models_endpoint_separates_availability_from_residency(client):
+    payload = client.get("/api/models").json()
+    assert payload["service"]["available"] is True
+    assert payload["service"]["lazy_loading"] is True
+    assert "analysis_available" in payload["service"]
+    assert payload["service"]["model_files_present"] == settings.models_present
+    if payload["detector"]["loaded"]:
+        assert isinstance(payload["detector"]["classes"], dict)
+    else:
+        # An empty class map is never reported for a model that has not loaded.
+        assert payload["detector"]["classes"] is None
+        assert payload["detector"]["classes_note"]
+    assert payload["classifier"]["classes"] == ["Healthy", "Unhealthy"]
+    assert "last_inference" in payload
+
+
+def test_health_records_the_real_inference_after_an_analysis(client, health):
+    """A genuine /api/analyze run is recorded (and only then)."""
+    import pytest
+
+    from tests.conftest import make_png_bytes
+
+    if not health["ready"]:
+        pytest.skip("trained model files are not installed in this environment")
+    response = client.post(
+        "/api/analyze",
+        files={"image": ("onion.png", make_png_bytes(), "image/png")},
+    )
+    if response.status_code != 200:
+        pytest.skip("inference runtime unavailable in this environment")
+
+    payload = client.get("/api/health").json()
+    assert payload["last_inference_ok"] is True
+    assert payload["last_inference_bulbs"] == response.json()["total_onions"]
+    assert payload["inference_successes"] >= 1
+    assert payload["last_inference_ms"] is not None
+    # Weights are released again after inference (512 MiB deployment limit).
+    assert payload["detector_loaded"] is False
+    assert payload["classifier_loaded"] is False
+    assert payload["detector_last_load_ok"] is True
+    assert payload["classifier_last_load_ok"] is True
+    assert payload["detector_last_load_ms"] is not None
+    assert payload["classifier_last_load_ms"] is not None

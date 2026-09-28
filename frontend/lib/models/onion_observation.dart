@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../config/grades.dart';
+import '../config/grading_rules.dart';
 import '../theme/app_theme.dart';
 
 /// Human verification state of a single onion bulb.
@@ -52,6 +54,26 @@ enum VerificationOutcome {
         return Icons.edit_outlined;
     }
   }
+}
+
+/// Inspector decision on the PER-BULB grade recommendation.
+///
+/// Separate from the health verification above: a bulb's health may be
+/// confirmed while its grade is overridden (or the other way round). The AI
+/// recommendation is never overwritten — an override records the inspector's
+/// own grade next to it.
+enum BulbGradeDecision {
+  pending('pending', 'Pending'),
+  confirmed('confirmed', 'Confirmed'),
+  overridden('overridden', 'Overridden');
+
+  const BulbGradeDecision(this.wireValue, this.label);
+
+  /// Value accepted by the report contract.
+  final String wireValue;
+
+  /// Short display label.
+  final String label;
 }
 
 /// Onion health label as reported by the classification model.
@@ -112,7 +134,18 @@ class OnionObservation {
     this.verification = VerificationOutcome.pending,
     this.humanDecision,
     this.verificationNote = '',
-  });
+    BulbGradeAssessment? gradeAssessment,
+    double relativeArea = 1.0,
+    GradingRules rules = GradingRules.standard,
+  }) : gradeAssessment = gradeAssessment ??
+            rules.assess(
+              BulbEvidence(
+                health: aiHealth,
+                healthConfidence: healthConfidence,
+                detectionConfidence: detectionConfidence,
+                relativeArea: relativeArea,
+              ),
+            );
 
   /// 1-based bulb number assigned by the detection stage.
   final int id;
@@ -125,12 +158,23 @@ class OnionObservation {
   /// Confidence of the health classification — never overwritten.
   final double healthConfidence;
 
+  /// Standards-informed grade recommendation for THIS bulb, produced by the
+  /// configurable rule engine (`config/grading_rules.dart`). Never overwritten
+  /// by an inspector decision.
+  final BulbGradeAssessment gradeAssessment;
+
   VerificationOutcome verification;
 
   /// Inspector decision when the AI observation was overridden.
   String? humanDecision;
 
   String verificationNote;
+
+  /// Inspector decision on the grade recommendation.
+  BulbGradeDecision gradeDecision = BulbGradeDecision.pending;
+
+  /// Inspector's own grade when the recommendation was overridden.
+  String? humanGrade;
 
   bool get isHealthyObservation => OnionHealth.isHealthy(aiHealth);
   bool get isReviewed => verification != VerificationOutcome.pending;
@@ -169,12 +213,92 @@ class OnionObservation {
 
   String get displayLabel => 'ONION #${id.toString().padLeft(2, '0')}';
 
-  factory OnionObservation.fromJson(Map<String, dynamic> json) => OnionObservation(
+  // --------------------------------------------------------------------- //
+  // Per-bulb grade workflow: recommendation → human decision → final grade
+  // --------------------------------------------------------------------- //
+
+  /// AI-assisted grade recommendation for this bulb (never overwritten).
+  String get recommendedGrade => gradeAssessment.grade;
+
+  /// Visible-quality observation produced by the grading engine.
+  String get qualityObservation => gradeAssessment.observation;
+
+  /// Why the engine produced this recommendation (auditable rule trace).
+  String get gradeReason => gradeAssessment.reason;
+
+  /// True when the engine could not grade this bulb from the measured evidence.
+  bool get gradeRequiresHumanReview => gradeAssessment.requiresHumanReview;
+
+  bool get gradeDecided => gradeDecision != BulbGradeDecision.pending;
+
+  /// Final grade: the recommendation when confirmed, the inspector's grade when
+  /// overridden; `null` while the bulb still awaits a decision.
+  String? get finalGrade {
+    switch (gradeDecision) {
+      case BulbGradeDecision.confirmed:
+        return gradeAssessment.grade;
+      case BulbGradeDecision.overridden:
+        return humanGrade;
+      case BulbGradeDecision.pending:
+        return null;
+    }
+  }
+
+  String get finalGradeLabel => finalGrade ?? 'PENDING';
+
+  String get gradeDecisionLabel => gradeDecision.label;
+
+  /// Accept the recommended grade for this bulb.
+  void confirmGrade() {
+    gradeDecision = BulbGradeDecision.confirmed;
+    humanGrade = null;
+  }
+
+  /// Record an inspector grade for this bulb (recommendation preserved).
+  void overrideGradeWith(String grade) {
+    if (!QualityGrade.isValid(grade)) return;
+    gradeDecision = BulbGradeDecision.overridden;
+    humanGrade = grade;
+  }
+
+  /// Return the grade decision of this bulb to PENDING.
+  void clearGradeDecision() {
+    gradeDecision = BulbGradeDecision.pending;
+    humanGrade = null;
+  }
+
+  /// Bulb box area as a share of the image area. Returns 1.0 when the frame
+  /// size is unknown, so an unknown image size never triggers the engine's
+  /// "too small in frame" rule.
+  static double _relativeAreaFrom(
+    Map<String, dynamic> json,
+    int imageWidth,
+    int imageHeight,
+  ) {
+    if (imageWidth <= 0 || imageHeight <= 0) return 1.0;
+    final box = BoundingBox.fromJson(json['bbox'] as Map<String, dynamic>);
+    final frame = imageWidth * imageHeight;
+    if (frame <= 0) return 1.0;
+    return (box.width * box.height / frame).clamp(0.0, 1.0).toDouble();
+  }
+
+  /// Parse one detection from a real `/api/analyze` response.
+  ///
+  /// [imageWidth] / [imageHeight] let the grading engine judge whether the bulb
+  /// is large enough in frame to be graded; they are optional so existing
+  /// callers keep working.
+  factory OnionObservation.fromJson(
+    Map<String, dynamic> json, {
+    int imageWidth = 0,
+    int imageHeight = 0,
+  }) =>
+      OnionObservation(
         id: (json['id'] as num).toInt(),
         bbox: BoundingBox.fromJson(json['bbox'] as Map<String, dynamic>),
         detectionConfidence: (json['detection_confidence'] as num).toDouble(),
         aiHealth: json['health'] as String,
         healthConfidence: (json['health_confidence'] as num).toDouble(),
+        relativeArea: _relativeAreaFrom(json, imageWidth, imageHeight),
       );
 
   /// Detection payload for the report request (AI fields only).
@@ -187,6 +311,10 @@ class OnionObservation {
       };
 
   /// Verification payload for the report request.
+  ///
+  /// Carries the per-bulb grade record as well: the AI recommendation, the
+  /// visible-quality observation, the inspector's grade and the decision — the
+  /// PDF renders the bulb-wise quality table from exactly these values.
   Map<String, dynamic> toVerificationJson() => <String, dynamic>{
         'id': id,
         'ai_health': aiHealth,
@@ -195,6 +323,12 @@ class OnionObservation {
         'verification_status': verification.wireValue,
         'human_decision': humanDecision,
         'verification_note': verificationNote.isEmpty ? null : verificationNote,
+        'quality_observation': qualityObservation,
+        'recommended_grade': recommendedGrade,
+        'human_grade': humanGrade,
+        'final_grade': finalGrade,
+        'grade_decision': gradeDecision.wireValue,
+        'grade_reason': gradeReason,
       };
 
   /// Accept the AI observation.

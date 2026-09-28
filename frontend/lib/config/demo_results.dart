@@ -383,14 +383,37 @@ const List<DemoScenario> kDemoScenarios = <DemoScenario>[
 
 /// Builds the observation list for a scenario — every bulb starts in the
 /// PENDING human-verification state (nothing is auto-verified).
+///
+/// Each bulb also receives its standards-informed grade recommendation from the
+/// shared rule engine (`config/grading_rules.dart`), computed from the stored
+/// demonstration confidences. Demo grades are therefore deterministic and use
+/// exactly the same rules as a real upload — only the INPUT is fixed.
 List<OnionObservation> buildDemoObservations(DemoScenario scenario) =>
-    <OnionObservation>[
-      for (final onion in scenario.onions)
-        OnionObservation(
-          id: onion.id,
-          bbox: onion.bbox,
-          detectionConfidence: onion.detectionConfidence,
-          aiHealth: onion.health,
-          healthConfidence: onion.confidence,
-        ),
-    ];
+    buildDemoObservationsFor(scenario);
+
+/// Same as [buildDemoObservations], with an explicit frame size so the engine
+/// can judge whether each bulb is large enough in frame to be graded.
+List<OnionObservation> buildDemoObservationsFor(
+  DemoScenario scenario, {
+  int? imageWidth,
+  int? imageHeight,
+}) {
+  final width = imageWidth ?? scenario.imageWidth;
+  final height = imageHeight ?? scenario.imageHeight;
+  final frame = (width > 0 && height > 0) ? width * height : 0;
+  return <OnionObservation>[
+    for (final onion in scenario.onions)
+      OnionObservation(
+        id: onion.id,
+        bbox: onion.bbox,
+        detectionConfidence: onion.detectionConfidence,
+        aiHealth: onion.health,
+        healthConfidence: onion.confidence,
+        relativeArea: frame == 0
+            ? 1.0
+            : (onion.bbox.width * onion.bbox.height / frame)
+                .clamp(0.0, 1.0)
+                .toDouble(),
+      ),
+  ];
+}

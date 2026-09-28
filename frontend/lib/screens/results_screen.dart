@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../config/grades.dart';
+import '../config/grading_rules.dart';
 import '../models/analysis_result.dart';
 import '../models/inspection_session.dart';
 import '../models/onion_observation.dart';
@@ -12,6 +13,7 @@ import '../providers/inspection_provider.dart';
 import '../theme/app_theme.dart';
 import '../theme/app_theme_data.dart';
 import '../widgets/app_shell.dart';
+import '../widgets/bulb_grade_table.dart';
 import '../widgets/evidence_view.dart';
 import '../widgets/feedback.dart';
 import '../widgets/inspection_record_panel.dart';
@@ -87,6 +89,36 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
                 session: session,
               ),
               const SizedBox(height: AppTheme.xl),
+              // BULB-WISE QUALITY ASSESSMENT — one record per detected bulb.
+              BulbGradeTable(
+                observations: observations,
+                selectedId: selectedId,
+                onSelect: ref.read(inspectionProvider.notifier).selectOnion,
+                onConfirmGrade:
+                    ref.read(inspectionProvider.notifier).confirmBulbGrade,
+                onOverrideGrade:
+                    ref.read(inspectionProvider.notifier).overrideBulbGrade,
+                onClearGrade: ref
+                    .read(inspectionProvider.notifier)
+                    .clearBulbGradeDecision,
+                onConfirmAll: ref
+                    .read(inspectionProvider.notifier)
+                    .confirmAllPendingGrades,
+              ),
+              const SizedBox(height: AppTheme.xl),
+              // QUALITY GRADE DISTRIBUTION — computed from the bulb records.
+              GradeDistributionPanel(
+                title: 'Quality grade distribution',
+                subtitle:
+                    'Counts are computed from the bulb records above and update '
+                    'the moment a single bulb is confirmed or overridden.',
+                distribution: session.gradeDistribution,
+                footnote: session.pendingGradeCount == 0
+                    ? 'All ${session.totalCount} bulb(s) carry a recorded grade.'
+                    : '${session.pendingGradeCount} of ${session.totalCount} '
+                        'bulb(s) still await a grade decision.',
+              ),
+              const SizedBox(height: AppTheme.xl),
               _GradePanel(
                 session: session,
                 analysis: analysis,
@@ -145,6 +177,19 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
                     ref.read(inspectionProvider.notifier).overrideObservation,
                 onClear: ref.read(inspectionProvider.notifier).clearReview,
               ),
+              const SizedBox(height: AppTheme.xl),
+              // FINAL VERIFIED DISTRIBUTION — the grades the inspector recorded.
+              GradeDistributionPanel(
+                title: 'Final verified distribution',
+                subtitle:
+                    'Grades recorded by the inspector. Health verification: '
+                    '${session.reviewedCount} of ${session.totalCount} bulb(s) '
+                    'reviewed · AI–human mismatches: ${session.mismatchCount}.',
+                distribution: session.gradeDistribution,
+                footnote:
+                    '${GradingWording.humanVerificationRequired} · '
+                    '${GradingWording.lotManualDecision}',
+              ),
               if (analysis.hasDetections) ...[
                 const SizedBox(height: AppTheme.xl),
                 _FinalizeSection(
@@ -154,6 +199,9 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
                   reportNotice: state.reportNotice,
                   onGenerate:
                       ref.read(inspectionProvider.notifier).generateReport,
+                  onConfirmAllGrades: ref
+                      .read(inspectionProvider.notifier)
+                      .confirmAllPendingGrades,
                 ),
               ],
             ],
@@ -544,6 +592,7 @@ class _FinalizeSection extends StatelessWidget {
     required this.reportError,
     required this.reportNotice,
     required this.onGenerate,
+    required this.onConfirmAllGrades,
   });
 
   final InspectionSession session;
@@ -552,10 +601,18 @@ class _FinalizeSection extends StatelessWidget {
   final String? reportNotice;
   final Future<void> Function() onGenerate;
 
+  /// Accepts every remaining grade recommendation (unblocks the report).
+  final VoidCallback onConfirmAllGrades;
+
   @override
   Widget build(BuildContext context) {
-    final canGenerate =
-        session.allReviewed && !generating && reportError == null;
+    // The report is only generated once every bulb has both a health
+    // verification and a recorded grade decision, so the PDF can always print
+    // the complete bulb-wise quality table.
+    final canGenerate = session.allReviewed &&
+        session.allGradesDecided &&
+        !generating &&
+        reportError == null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -593,10 +650,30 @@ class _FinalizeSection extends StatelessWidget {
         ),
         const SizedBox(height: AppTheme.s8),
         Text(
-          'All ${session.totalCount} onions must be reviewed before the '
-          'report can be generated.',
+          session.allGradesDecided && session.allReviewed
+              ? 'All ${session.totalCount} bulb(s) are reviewed and graded. The '
+                  'report records the AI recommendation, the final grade and the '
+                  'human decision for every bulb.'
+              : 'All ${session.totalCount} bulb(s) must be reviewed and graded '
+                  'before the report can be generated.',
           style: AppTypo.meta,
         ),
+        if (!session.allGradesDecided) ...[
+          const SizedBox(height: AppTheme.md),
+          InfoBanner(
+            title: 'Grade decision required',
+            severity: BannerSeverity.attention,
+            message:
+                '${session.pendingGradeCount} bulb(s) still need a grade '
+                'decision. Confirm the recommendations or override them, then '
+                'generate the report.',
+            action: FilledButton.icon(
+              onPressed: onConfirmAllGrades,
+              icon: const Icon(Icons.done_all, size: 16),
+              label: const Text('CONFIRM ALL RECOMMENDATIONS'),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -765,6 +842,65 @@ class _GradePanel extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: AppTheme.md),
+
+          // RECOMMENDED LOT STATUS — configurable, explicitly explained policy.
+          Builder(
+            builder: (context) {
+              final recommendation = session.lotGradeRecommendation;
+              return Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(AppTheme.s12),
+                decoration: BoxDecoration(
+                  color: AppTheme.offWhite,
+                  borderRadius: BorderRadius.circular(AppTheme.cardRadius),
+                  border: Border.all(color: AppTheme.border),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('RECOMMENDED LOT STATUS', style: AppTypo.label),
+                    const SizedBox(height: AppTheme.s4),
+                    Row(
+                      children: [
+                        StatusChip(
+                          label: recommendation.status,
+                          colour: gradeColourFor(recommendation.status),
+                          icon: recommendation.pendingHumanVerification
+                              ? Icons.pending_outlined
+                              : Icons.insights_outlined,
+                        ),
+                        if (recommendation.pendingHumanVerification) ...[
+                          const SizedBox(width: AppTheme.s8),
+                          Flexible(
+                            child: Text(
+                              GradingWording.lotManualDecision,
+                              style: AppTypo.label
+                                  .copyWith(color: AppTheme.amberDark),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: AppTheme.s8),
+                    Text(recommendation.rule, style: AppTypo.meta),
+                    const SizedBox(height: AppTheme.s4),
+                    Text(
+                      LotGradingPolicy.standard.ruleText,
+                      style: AppTypo.meta.copyWith(
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                    const SizedBox(height: AppTheme.s4),
+                    Text(
+                      GradingWording.noOfficialCertification,
+                      style: AppTypo.meta,
+                    ),
+                  ],
+                ),
+              );
+            },
           ),
           const SizedBox(height: AppTheme.md),
 

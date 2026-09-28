@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import '../core/api_exception.dart';
 import '../core/inspection_id.dart';
 import '../config/grades.dart';
+import '../config/grading_rules.dart';
 import 'analysis_result.dart';
 import 'onion_observation.dart';
 
@@ -112,6 +113,38 @@ class InspectionSession {
     gradeDecision = GradeDecision.pending;
     humanGrade = null;
   }
+
+  // --------------------------------------------------------------------- //
+  // PER-BULB GRADE RECORDS (lot summary is derived from these, never stored)
+  // --------------------------------------------------------------------- //
+
+  /// Final grade of every bulb (`null` while undecided).
+  List<String?> get bulbFinalGrades => observations
+      .map((observation) => observation.finalGrade)
+      .toList(growable: false);
+
+  /// Grade distribution computed from the bulb records: the counts change the
+  /// moment a single bulb is confirmed or overridden.
+  LotGradeDistribution get gradeDistribution =>
+      LotGradeDistribution.fromGrades(bulbFinalGrades);
+
+  /// Configurable lot-level recommendation derived from the bulb records.
+  LotGradeRecommendation get lotGradeRecommendation =>
+      LotGradingPolicy.standard.recommend(gradeDistribution);
+
+  /// (Grade A, Grade B, URS) counts of the bulbs the inspector has decided.
+  (int, int, int) get verifiedGradeCounts => (
+        gradeDistribution.gradeA,
+        gradeDistribution.gradeB,
+        gradeDistribution.urs,
+      );
+
+  /// Bulbs whose grade decision is still pending.
+  int get pendingGradeCount =>
+      observations.where((observation) => !observation.gradeDecided).length;
+
+  bool get allGradesDecided =>
+      observations.isNotEmpty && pendingGradeCount == 0;
 
   List<OnionObservation> get observations =>
       analysis?.observations ?? const <OnionObservation>[];

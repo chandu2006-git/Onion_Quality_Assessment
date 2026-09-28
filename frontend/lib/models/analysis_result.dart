@@ -66,13 +66,21 @@ class AnalysisResult {
   }
 
   factory AnalysisResult.fromJson(Map<String, dynamic> json) {
+    final imageWidth = (json['image_width'] as num?)?.toInt() ?? 0;
+    final imageHeight = (json['image_height'] as num?)?.toInt() ?? 0;
+    // Frame size is passed in so the grading engine can judge whether each bulb
+    // is large enough in frame to be graded from the measured evidence.
     final detections = (json['detections'] as List<dynamic>? ?? <dynamic>[])
-        .map((entry) => OnionObservation.fromJson(entry as Map<String, dynamic>))
+        .map(
+          (entry) => OnionObservation.fromJson(
+            entry as Map<String, dynamic>,
+            imageWidth: imageWidth,
+            imageHeight: imageHeight,
+          ),
+        )
         .toList(growable: false);
 
     final encoded = json['annotated_image'] as String? ?? '';
-    final imageWidth = (json['image_width'] as num?)?.toInt() ?? 0;
-    final imageHeight = (json['image_height'] as num?)?.toInt() ?? 0;
 
     return AnalysisResult(
       totalOnions: (json['total_onions'] as num?)?.toInt() ?? detections.length,

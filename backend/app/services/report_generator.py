@@ -9,7 +9,7 @@ import base64
 import io
 import logging
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
@@ -67,6 +67,38 @@ LIMITATIONS = (
 VERIFICATION_STATEMENT = (
     "The AI output represents an assisted observation. Final inspection status is recorded "
     "following human verification."
+)
+
+REAL_AI_PROVENANCE = (
+    "REAL AI INSPECTION - YOLOv8n object detection and MobileNetV2 (LiteRT) health "
+    "classification were executed on the submitted image. Every value below was produced "
+    "by those models; the grade is an AI-assisted recommendation and the final decision "
+    "belongs to the inspector."
+)
+
+DEMO_PROVENANCE = (
+    "DEMONSTRATION REPORT - DEMO MODE - FIXED DEMO SCENARIO - MODELS NOT EXECUTED"
+)
+
+GRADE_REFERENCE_NOTE = (
+    "STANDARDS-INFORMED QUALITY RECOMMENDATION - GRADE A / GRADE B / URS are this project's "
+    "operational categories, informed by the documented onion quality references (AGMARK "
+    "Extra Class / Class I / Class II tolerances and the PSF procurement characteristics). "
+    "This is not an official AGMARK or PSF certification, and the final grade is decided by "
+    "the inspector - FINAL GRADE SUBJECT TO HUMAN VERIFICATION."
+)
+
+GRADE_EVIDENCE_NOTE = (
+    "The grading engine uses only the evidence this system measures: the detected bulb, the "
+    "health classification and their confidences. Diameter, firmness, moisture, internal rot, "
+    "stem or root length and exact defect percentages are NOT measured and are never claimed."
+)
+
+LOT_POLICY_NOTE = (
+    "Lot policy (configurable): GRADE A when at least 85% of the graded bulbs are GRADE A and "
+    "no bulb is URS; GRADE B when GRADE A and GRADE B together cover at least 50% of the graded "
+    "bulbs; otherwise URS. Pending until every bulb has a grade - the final lot decision is the "
+    "inspector's."
 )
 
 STANDARDS_NOTE = (
@@ -136,6 +168,7 @@ def build_report(payload: InspectionSummaryRequest) -> bytes:
 
     story: List = []
     story.extend(_masthead(styles))
+    story.extend(_provenance(payload, styles))
     if payload.is_demo:
         story.extend(_demo_banner(payload, styles))
     story.extend(_inspection_information(payload, styles))
@@ -302,10 +335,10 @@ def _demo_banner(payload: InspectionSummaryRequest, styles) -> List:
     """Prominent DEMO MODE banner — a fixed scenario is never passed off as AI output."""
     lines = [
         Paragraph(
-            "<b>DEMO MODE \u2014 FIXED DEMONSTRATION SCENARIO.</b> No AI model was executed "
-            "for this result. Detection boxes and confidences were produced by the real "
-            "YOLOv8n model once on the bundled sample photograph; health labels are fixed "
-            "scenario values. Human verification and the quality-grade decision still apply.",
+            f"<b>{DEMO_PROVENANCE}.</b> No AI model was executed for this result. "
+            "Detection boxes and confidences were produced by the real YOLOv8n model "
+            "once on the bundled sample photograph; health labels are fixed scenario "
+            "values. Human verification and the quality-grade decision still apply.",
             styles["body"],
         )
     ]
@@ -373,33 +406,227 @@ def _grade_block(payload: InspectionSummaryRequest, styles) -> List:
     ]
 
 
+def _provenance(payload: InspectionSummaryRequest, styles) -> List:
+    """State plainly whether the REAL models were executed for this report.
+
+    Real reports are labelled REAL AI INSPECTION; demo reports are labelled in
+    full by the DEMO MODE banner and are never presented as model output.
+    """
+    if payload.is_demo:
+        return []
+    table = Table(
+        [[Paragraph(f"<b>{REAL_AI_PROVENANCE}</b>", styles["small"])]],
+        colWidths=[168 * mm],
+    )
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), BRAND_MINT),
+                ("BOX", (0, 0), (-1, -1), 0.9, BRAND_GREEN_LIGHT),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ]
+        )
+    )
+    return [Spacer(1, 4), table]
+
+
+def _short_text(
+    value: Optional[str],
+    fallback: str = "\u2014",
+    limit: int = 170,
+) -> str:
+    """Compact a free-text cell so the bulb table stays readable."""
+    if value is None:
+        return fallback
+    text = str(value).strip()
+    if not text:
+        return fallback
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+def _grade_counts(payload: InspectionSummaryRequest) -> Dict[str, int]:
+    """Count FINAL per-bulb grades (never guessed: PENDING stays pending)."""
+    counts = {
+        "GRADE A": 0,
+        "GRADE B": 0,
+        "URS": 0,
+        "NEEDS HUMAN REVIEW": 0,
+        "PENDING": 0,
+    }
+    for item in payload.verifications:
+        final = (item.final_grade or "").strip().upper()
+        if final in ("GRADE A", "GRADE B", "URS"):
+            counts[final] += 1
+        elif (item.recommended_grade or "").strip().upper() == "REQUIRES HUMAN REVIEW":
+            counts["NEEDS HUMAN REVIEW"] += 1
+        else:
+            counts["PENDING"] += 1
+    return counts
+
+
+def _lot_recommendation(counts: Dict[str, int]) -> Tuple[str, str]:
+    """Configurable lot aggregation policy (mirrors the frontend rule set)."""
+    graded = counts["GRADE A"] + counts["GRADE B"] + counts["URS"]
+    waiting = counts["PENDING"] + counts["NEEDS HUMAN REVIEW"]
+    if graded == 0:
+        return (
+            "REQUIRES HUMAN REVIEW",
+            "No bulb grade has been recorded yet, so no lot grade is claimed.",
+        )
+    if waiting > 0:
+        return (
+            "REQUIRES HUMAN REVIEW",
+            f"{waiting} of {graded + waiting} bulb(s) still await a grade decision.",
+        )
+    a_share = counts["GRADE A"] / graded
+    ab_share = (counts["GRADE A"] + counts["GRADE B"]) / graded
+    if a_share >= 0.85 and counts["URS"] == 0:
+        return (
+            "GRADE A",
+            f"GRADE A share is {round(a_share * 100)}% of the graded bulbs and no bulb is URS.",
+        )
+    if ab_share >= 0.50:
+        return (
+            "GRADE B",
+            f"GRADE A + GRADE B cover {round(ab_share * 100)}% of the graded bulbs.",
+        )
+    return (
+        "URS",
+        f"GRADE A + GRADE B cover only {round(ab_share * 100)}% of the graded bulbs.",
+    )
+
+
+def _grade_distribution_block(
+    payload: InspectionSummaryRequest,
+    styles,
+    mismatches: int,
+) -> List:
+    """GRADE DISTRIBUTION + FINAL VERIFICATION, from the bulb records."""
+    has_grades = any(
+        (item.final_grade or item.recommended_grade) for item in payload.verifications
+    )
+    if not has_grades:
+        return []
+
+    counts = _grade_counts(payload)
+    status, rule = _lot_recommendation(counts)
+    graded = counts["GRADE A"] + counts["GRADE B"] + counts["URS"]
+    waiting = counts["PENDING"] + counts["NEEDS HUMAN REVIEW"]
+    total = graded + waiting
+
+    header = [
+        Paragraph("GRADE A", styles["label"]),
+        Paragraph("GRADE B", styles["label"]),
+        Paragraph("URS", styles["label"]),
+        Paragraph("AWAITING DECISION", styles["label"]),
+        Paragraph("TOTAL", styles["label"]),
+    ]
+    values = [
+        Paragraph(str(counts["GRADE A"]), styles["value"]),
+        Paragraph(str(counts["GRADE B"]), styles["value"]),
+        Paragraph(str(counts["URS"]), styles["value"]),
+        Paragraph(str(waiting), styles["value"]),
+        Paragraph(str(total), styles["value"]),
+    ]
+    table = Table([header, values], colWidths=[33.6 * mm] * 5)
+    table.setStyle(
+        TableStyle(
+            [
+                ("GRID", (0, 0), (-1, -1), 0.5, BORDER),
+                ("BACKGROUND", (0, 0), (-1, 0), OFF_WHITE),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]
+        )
+    )
+
+    story: List = _section_title("3b. Quality Grade Distribution", styles)
+    story.append(table)
+    story.append(Spacer(1, 4))
+    story.append(
+        Paragraph(
+            f"RECOMMENDED LOT STATUS: <b>{status}</b> \u2014 {rule}",
+            styles["body"],
+        )
+    )
+    if status == "REQUIRES HUMAN REVIEW":
+        story.append(
+            Paragraph("HUMAN REVIEW REQUIRED FOR FINAL LOT DECISION.", styles["body"])
+        )
+    story.append(Spacer(1, 4))
+    story.append(Paragraph(LOT_POLICY_NOTE, styles["small"]))
+
+    story.extend(_section_title("3c. Final Verification", styles))
+    story.append(
+        Paragraph(
+            f"Human verified: {graded} of {total} bulb(s) carry a recorded grade \u00b7 "
+            f"AI\u2013human health mismatches: {mismatches}.",
+            styles["body"],
+        )
+    )
+    story.append(
+        Paragraph(
+            f"Final verified grade distribution \u2014 GRADE A: {counts['GRADE A']} \u00b7 "
+            f"GRADE B: {counts['GRADE B']} \u00b7 URS: {counts['URS']}.",
+            styles["body"],
+        )
+    )
+    story.append(Spacer(1, 4))
+    story.append(Paragraph(GRADE_REFERENCE_NOTE, styles["small"]))
+    story.append(Spacer(1, 2))
+    story.append(Paragraph(GRADE_EVIDENCE_NOTE, styles["small"]))
+    return story
+
+
 def _observation_table(payload: InspectionSummaryRequest, styles) -> List:
-    story = _section_title("3. Individual Observations", styles)
+    story = _section_title("3. Bulb-wise Quality Assessment", styles)
     verifications = {item.id: item for item in payload.verifications}
     header = [
-        Paragraph("ONION", styles["label"]),
-        Paragraph("AI OBSERVATION", styles["label"]),
-        Paragraph("HEALTH CONF.", styles["label"]),
-        Paragraph("DETECTION CONF.", styles["label"]),
+        Paragraph("BULB", styles["label"]),
+        Paragraph("HEALTH", styles["label"]),
+        Paragraph("CONF.", styles["label"]),
+        Paragraph("QUALITY OBSERVATION", styles["label"]),
+        Paragraph("AI GRADE", styles["label"]),
+        Paragraph("FINAL GRADE", styles["label"]),
         Paragraph("HUMAN VERIFICATION", styles["label"]),
-        Paragraph("STATUS", styles["label"]),
     ]
     rows = [header]
     for detection in payload.detections:
         verification = verifications.get(detection.id)
         human = human_verification_label(detection.health.value, verification)
-        status = verification.verification_status.value.replace("_", " ") if verification else "pending"
         rows.append(
             [
                 Paragraph(f"#{detection.id:02d}", styles["body"]),
                 Paragraph(detection.health.value, styles["body"]),
-                Paragraph(f"{detection.health_confidence * 100:.1f}%", styles["body"]),
-                Paragraph(f"{detection.detection_confidence * 100:.1f}%", styles["body"]),
-                Paragraph(human, styles["body"]),
-                Paragraph(status, styles["small"]),
+                Paragraph(f"{detection.health_confidence * 100:.0f}%", styles["small"]),
+                Paragraph(
+                    _short_text(getattr(verification, "quality_observation", None)),
+                    styles["small"],
+                ),
+                Paragraph(
+                    _short_text(getattr(verification, "recommended_grade", None)),
+                    styles["small"],
+                ),
+                Paragraph(
+                    _short_text(
+                        getattr(verification, "final_grade", None),
+                        fallback="PENDING",
+                    ),
+                    styles["small"],
+                ),
+                Paragraph(human, styles["small"]),
             ]
         )
-    table = Table(rows, colWidths=[16 * mm, 30 * mm, 24 * mm, 28 * mm, 40 * mm, 30 * mm], repeatRows=1)
+    table = Table(
+        rows,
+        colWidths=[12 * mm, 20 * mm, 14 * mm, 47 * mm, 19 * mm, 20 * mm, 36 * mm],
+        repeatRows=1,
+    )
     style = [
         ("GRID", (0, 0), (-1, -1), 0.5, BORDER),
         ("BACKGROUND", (0, 0), (-1, 0), OFF_WHITE),
@@ -437,6 +664,8 @@ def _observation_table(payload: InspectionSummaryRequest, styles) -> List:
             f"{counts['verified_healthy']} Healthy / {counts['verified_unhealthy']} Unhealthy."
         )
     story.append(Paragraph(verification_line, styles["small"]))
+    # Per-bulb grade distribution + final verification (from the bulb records).
+    story.extend(_grade_distribution_block(payload, styles, mismatches))
     return story
 
 

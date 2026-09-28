@@ -9,6 +9,26 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # regardless of the working directory the process was started from.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Production Firebase Hosting frontends of this product. Both hostname suffixes
+# of each project are listed because Firebase serves the same site under
+# ``<project>.web.app`` and ``<project>.firebaseapp.com``. These origins are
+# merged into the configured CORS allow-list unconditionally: the deployed
+# frontend must be able to call /api/analyze and /api/report even when the
+# platform's CORS_ORIGINS environment variable is stale.
+PRODUCTION_FRONTEND_ORIGINS: tuple[str, ...] = (
+    "https://mindflayers3.web.app",
+    "https://mindflayers3.firebaseapp.com",
+    "https://ayurherb-51677.web.app",
+    "https://ayurherb-51677.firebaseapp.com",
+)
+
+# Firebase Hosting preview channels (``<project>--<channel>-<hash>.web.app``)
+# used for staging builds. Wildcards are compiled into an origin regex below.
+PRODUCTION_PREVIEW_ORIGIN_PATTERNS: tuple[str, ...] = (
+    "https://mindflayers3--*",
+    "https://ayurherb-51677--*",
+)
+
 
 class Settings(BaseSettings):
     """Runtime configuration (environment variables / backend/.env)."""
@@ -35,11 +55,15 @@ class Settings(BaseSettings):
     # compiled into an origin regex (see cors_origin_regex), so local Flutter Web
     # development works on any dynamically assigned port, e.g.:
     #   http://localhost,http://localhost:*,http://127.0.0.1,http://127.0.0.1:*
+    #
+    # The known production Firebase Hosting origins are ALWAYS appended (see
+    # PRODUCTION_FRONTEND_ORIGINS below) so a stale CORS_ORIGINS environment
+    # variable on the hosting platform can never silently block the deployed
+    # frontend's calls to /api/analyze and /api/report.
     CORS_ORIGINS: str = (
         "http://localhost,http://localhost:*,"
         "http://127.0.0.1,http://127.0.0.1:*,"
-        "http://localhost:8080,http://localhost:3000,"
-        "https://ayurherb-51677.web.app"
+        "http://localhost:8080,http://localhost:3000"
     )
     LOG_LEVEL: str = "INFO"
 
@@ -87,7 +111,12 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins_list(self) -> List[str]:
-        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+        configured = [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+        merged = list(configured)
+        for origin in (*PRODUCTION_FRONTEND_ORIGINS, *PRODUCTION_PREVIEW_ORIGIN_PATTERNS):
+            if origin not in merged:
+                merged.append(origin)
+        return merged
 
     @property
     def cors_origin_regex(self) -> Optional[str]:

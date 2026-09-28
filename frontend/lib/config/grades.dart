@@ -11,7 +11,11 @@ class QualityGrade {
   static const String gradeB = 'GRADE B';
   static const String urs = 'URS';
 
-  /// The complete set of supported labels.
+  /// Explicit state used when the measured evidence is too weak to grade.
+  /// Never a grade: it routes the bulb to the inspector.
+  static const String requiresReview = 'REQUIRES HUMAN REVIEW';
+
+  /// The complete set of supported LABELS (the three operational grades).
   static const List<String> all = <String>[gradeA, gradeB, urs];
 
   /// Expansion shown next to URS (never any other expansion).

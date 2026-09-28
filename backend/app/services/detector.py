@@ -12,6 +12,7 @@ same time (512 MiB deployment limit).
 
 import gc
 import logging
+import time
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -30,6 +31,13 @@ class OnionDetector:
         self._model = None
         self._class_names: Dict[int, str] = {}
         self.load_error: Optional[str] = None
+        # --- Load/inference diagnostics (reported by /api/health) ---------
+        self.load_attempts: int = 0
+        self.last_load_ok: Optional[bool] = None
+        self.last_load_ms: Optional[float] = None
+        self.last_loaded_at: Optional[float] = None
+        self.last_inference_ok: Optional[bool] = None
+        self.last_inference_error: Optional[str] = None
 
     @property
     def loaded(self) -> bool:
@@ -52,11 +60,13 @@ class OnionDetector:
         self._model = None
         self.load_error = None
         self._class_names = {}
+        self.load_attempts += 1
+        started = time.monotonic()
         path = self.model_path
         if not path.is_file():
             self.load_error = f"Detector model file not found: {path.name}"
             logger.error("Detector model file not found at %s", path)
-            return False
+            return self._record_load(False, started)
         try:
             from ultralytics import YOLO  # imported lazily: heavy dependency
 
@@ -65,12 +75,21 @@ class OnionDetector:
             if isinstance(names, dict):
                 self._class_names = {int(key): str(value) for key, value in names.items()}
             logger.info("Detector loaded from %s (classes: %s)", path.name, self._class_names or "not reported")
-            return True
+            self.last_loaded_at = time.time()
+            return self._record_load(True, started)
         except Exception as exc:  # pragma: no cover - depends on local ML runtime
             self._model = None
             self.load_error = f"Detector could not be loaded: {exc}"
             logger.exception("Failed to load the detector model")
-            return False
+            return self._record_load(False, started)
+
+    def _record_load(self, ok: bool, started: float) -> bool:
+        """Record the real load outcome (never a guessed one)."""
+        self.last_load_ok = ok
+        self.last_load_ms = round((time.monotonic() - started) * 1000.0, 1)
+        if not ok:
+            self.last_loaded_at = None
+        return ok
 
     def unload(self) -> None:
         """Release the YOLO model from memory and run garbage collection.
@@ -84,6 +103,7 @@ class OnionDetector:
         self._model = None
         gc.collect()
         if had_model:
+            self.last_loaded_at = None
             logger.info("Detector released from memory.")
 
     def detect(self, image: np.ndarray, conf: Optional[float] = None) -> List[Dict]:
@@ -91,7 +111,17 @@ class OnionDetector:
         if not self.loaded:
             raise RuntimeError(self.load_error or "Detector model is not loaded.")
         threshold = settings.CONFIDENCE_THRESHOLD if conf is None else conf
-        results = self._model.predict(source=image, conf=threshold, verbose=False)
+        try:
+            results = self._model.predict(source=image, conf=threshold, verbose=False)
+        except Exception as exc:
+            # Record the genuine runtime failure; /api/health reports it, the
+            # client receives a safe message (never a stack trace).
+            self.last_inference_ok = False
+            self.last_inference_error = str(exc)[:300]
+            logger.exception("Detector inference failed")
+            raise
+        self.last_inference_ok = True
+        self.last_inference_error = None
         detections: List[Dict] = []
         for result in results:
             boxes = getattr(result, "boxes", None)

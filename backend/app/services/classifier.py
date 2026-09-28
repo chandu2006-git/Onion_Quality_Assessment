@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import gc
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +43,14 @@ class OnionHealthClassifier:
         # Kept for compatibility with the existing pipeline.
         self.load_error: str | None = None
 
+        # --- Load/inference diagnostics (reported by /api/health) ---------
+        self.load_attempts: int = 0
+        self.last_load_ok: bool | None = None
+        self.last_load_ms: float | None = None
+        self.last_loaded_at: float | None = None
+        self.last_inference_ok: bool | None = None
+        self.last_inference_error: str | None = None
+
     @property
     def loaded(self) -> bool:
         """Return whether the LiteRT interpreter is currently loaded."""
@@ -52,19 +61,22 @@ class OnionHealthClassifier:
         if self.loaded:
             return True
 
+        self.load_attempts += 1
+        started = time.monotonic()
+
         model_path = Path(settings.classifier_path)
 
         if not model_path.exists():
             self.load_error = f"Classifier model not found: {model_path}"
             logger.error(self.load_error)
-            return False
+            return self._record_load(False, started)
 
         if model_path.suffix.lower() != ".tflite":
             self.load_error = (
                 f"Classifier path must point to a .tflite model: {model_path}"
             )
             logger.error(self.load_error)
-            return False
+            return self._record_load(False, started)
 
         self.load_error = None
 
@@ -111,7 +123,9 @@ class OnionHealthClassifier:
                 output_details[0]["shape"],
             )
 
-            return True
+            self.last_loaded_at = time.time()
+
+            return self._record_load(True, started)
 
         except Exception as exc:
             self.load_error = str(exc)
@@ -122,7 +136,18 @@ class OnionHealthClassifier:
 
             self.unload()
 
-            return False
+            return self._record_load(False, started)
+
+    def _record_load(self, ok: bool, started: float) -> bool:
+        """Record the real load outcome (never a guessed one)."""
+        self.last_load_ok = ok
+        self.last_load_ms = round(
+            (time.monotonic() - started) * 1000.0,
+            1,
+        )
+        if not ok:
+            self.last_loaded_at = None
+        return ok
 
     def unload(self) -> None:
         """Release the LiteRT interpreter and associated memory."""
@@ -130,6 +155,7 @@ class OnionHealthClassifier:
         self._input_details = []
         self._output_details = []
         self._input_shape = None
+        self.last_loaded_at = None
 
         gc.collect()
 
@@ -141,7 +167,29 @@ class OnionHealthClassifier:
         self,
         image: np.ndarray,
     ) -> dict[str, Any]:
-        """Classify one onion crop as Healthy or Unhealthy."""
+        """Classify one onion crop as Healthy or Unhealthy.
+
+        Thin diagnostics wrapper: the real work happens in
+        :meth:`_classify_impl`, and a genuine runtime failure is recorded (never
+        swallowed) before being re-raised for the API to report safely.
+        """
+
+        try:
+            result = self._classify_impl(image)
+        except Exception as exc:
+            self.last_inference_ok = False
+            self.last_inference_error = str(exc)[:300]
+            raise
+
+        self.last_inference_ok = True
+        self.last_inference_error = None
+        return result
+
+    def _classify_impl(
+        self,
+        image: np.ndarray,
+    ) -> dict[str, Any]:
+        """Classification implementation (see :meth:`classify`)."""
 
         if not self.loaded:
             raise RuntimeError(

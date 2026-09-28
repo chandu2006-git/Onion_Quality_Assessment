@@ -28,7 +28,10 @@ class AppConfig {
   static bool get usesDevelopmentDefault =>
       normalizedApiBaseUrl.contains('localhost') || normalizedApiBaseUrl.contains('127.0.0.1');
 
-  static const Duration healthTimeout = Duration(seconds: 12);
+  /// Health classification takes a full model load on a cold Render instance,
+  /// so the probe waits long enough for the service to answer instead of
+  /// reporting a healthy service as unavailable.
+  static const Duration healthTimeout = Duration(seconds: 90);
   static const Duration analysisTimeout = Duration(minutes: 5);
   static const Duration reportTimeout = Duration(minutes: 2);
 
